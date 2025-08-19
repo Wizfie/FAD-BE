@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Fad {
+  id         String   @id @default(uuid())
+  noFad      String?  @map("noFad")
+  item       String?
+  plant      String?
+  terimaFad  DateTime? @map("terimaFad")
+  terimaBbm  DateTime? @map("terimaBbm")
+  vendor     String?
+  vendorId   String?  @map("vendorId")
+  vendorRel  Vendor?  @relation(fields: [vendorId], references: [id])
+  status     String?
+  deskripsi  String?
+  keterangan String?
+  bast       DateTime? @map("bast")
+
+  @@map("Fad")
+}
+
+model Vendor {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  fads      Fad[]
+
+  @@map("Vendor")
+}
+
+model ChangeLog {
+
+  id        String @id @default(uuid())
+  model     String
+  action    String
+  data  Json
+  createdAt DateTime @default(now())
+
+  @@map("ChangeLog")
+}
