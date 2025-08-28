@@ -7,212 +7,150 @@ import {
   readDataVendor,
   updateDataVendor,
   deleteDataVendor,
-} from '../services/serviceFad.js'
-import fs from 'fs/promises'
-import dotenv from 'dotenv'
-dotenv.config()
-
-const logFilePath = process.env.DATA_LOG_PATH
-
-// Fungsi untuk membaca log dari file
-const readLogFile = async () => {
-  try {
-    const data = await fs.readFile(logFilePath, 'utf8')
-    return data.trim() === '' ? [] : JSON.parse(data) // Jika file kosong, kembalikan array kosong
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      console.log('File log tidak ditemukan, membuat file baru.')
-      await fs.writeFile(logFilePath, JSON.stringify([])) // Buat file log baru
-      return []
-    }
-    console.error('Gagal membaca file log:', error)
-    throw error
-  }
-}
-
-// Fungsi untuk menulis log ke file
-const writeLogFile = async (log) => {
-  if (!Array.isArray(log)) {
-    throw new Error('Log yang akan ditulis harus berupa array.')
-  }
-  try {
-    await fs.writeFile(logFilePath, JSON.stringify(log, null, 2))
-    console.log('Log berhasil ditulis ke file:', logFilePath)
-  } catch (error) {
-    console.error('Gagal menulis log ke file:', error)
-    throw error
-  }
-}
+} from "../services/serviceFad.js";
+import dotenv from "dotenv";
+import { changeLog } from "./changeLogController.js";
+import {
+  fmtDateToDDMMYYYY,
+  fmtDateTimeDDMMYYYY_HHmmss,
+} from "../utils/formatedDate.js";
+dotenv.config();
 
 // Tambahkan log saat menyimpan data
 const saveDataHandler = async (req, res) => {
   try {
-    const formData = req.body
-    const created = await saveDataFad(formData)
+    const formData = req.body;
+    const created = await saveDataFad(formData);
 
-    const logEntry = {
-      action: 'CREATE',
-      id: created.id,
-      timestamp: new Date().toISOString(),
-      description: `Data FAD dengan ID ${created.id} berhasil dibuat.`,
-    }
+    await changeLog("FAD", "CREATE", created);
 
-    const logs = await readLogFile()
-    logs.push(logEntry)
-    await writeLogFile(logs)
-
-    res.status(200).json({ message: 'created', data: created, logEntry })
+    res.status(200).json({ message: "created", data: created });
   } catch (e) {
-    res.status(500).json({
-      error: e.message || 'internal server error',
-    })
+    console.error("Save data failed:", e);
+    res.status(500).json({ error: "Internal server error" });
   }
-}
+};
 
 // Controller untuk membaca data
 const getDataHandler = async (req, res) => {
   try {
-    const { q, page, limit, fields, status } = req.query
-    // fields can be comma-separated string like 'noFad,item,deskripsi'
+    const { q, page, limit, fields, status } = req.query;
     const fieldList = fields
       ? String(fields)
-          .split(',')
+          .split(",")
           .map((f) => f.trim())
           .filter(Boolean)
-      : undefined
+      : undefined;
     const result = await readDataFad({
-      search: q ?? '',
+      search: q ?? "",
       page: page ?? 1,
       limit: limit ?? 50,
       fields: fieldList,
       status: status ?? undefined,
-    })
-    res.status(200).json(result)
+    });
+    res.status(200).json(result);
   } catch (e) {
-    res.status(500).json({ message: 'Terjadi kesalahan saat membaca data', error: e.message })
+    console.error("Get data failed:", e);
+    res.status(500).json({ message: "Terjadi kesalahan saat membaca data" });
   }
-}
+};
 
 // Tambahkan log saat memperbarui data
 const updateDataHandler = async (req, res) => {
-  const { id } = req.params
-  const updatedData = req.body
+  const { id } = req.params;
+  const updatedData = req.body;
   try {
-    const result = await updateDataFad(id, updatedData)
+    const result = await updateDataFad(id, updatedData);
 
-    const logEntry = {
-      action: 'UPDATE',
-      id,
-      timestamp: new Date().toISOString(),
-      description: `Data FAD dengan ID ${id} berhasil diperbarui.`,
-    }
+    // Simpan log perubahan
+    await changeLog("FAD", "UPDATE", result);
 
-    const logs = await readLogFile()
-    logs.push(logEntry)
-    await writeLogFile(logs)
-
-    res.status(200).json({ result, logEntry })
-    // res.status(200).json({ result })
+    res.status(200).json({
+      message: "Data updated successfully",
+      data: result,
+    });
   } catch (e) {
-    console.error('Gagal memperbarui data:', e)
-    res.status(500).json({ message: 'Terjadi kesalahan saat memperbarui data', error: e.message })
+    console.error("Update data failed:", e);
+    res
+      .status(500)
+      .json({ message: "Terjadi kesalahan saat memperbarui data" });
   }
-}
+};
 
 // Tambahkan log saat menghapus data
 const deleteDataHandler = async (req, res) => {
-  const { id } = req.params
+  const { id } = req.params;
   try {
-    const result = await deleteDataFad(id)
+    const result = await deleteDataFad(id);
 
-    const logEntry = {
-      action: 'DELETE',
-      id,
-      timestamp: new Date().toISOString(),
-      description: `Data FAD dengan ID ${id} berhasil dihapus.`,
-    }
+    await changeLog("FAD", "DELETE", result);
 
-    const logs = await readLogFile()
-    logs.push(logEntry)
-    await writeLogFile(logs)
-
-    res.status(200).json({ result, logEntry })
+    res
+      .status(200)
+      .json({ message: "Data deleted successfully", data: result });
   } catch (e) {
-    res.status(500).json({ message: 'Terjadi kesalahan saat menghapus data', error: e.message })
+    console.error("Delete data failed:", e);
+    res.status(500).json({ message: "Terjadi kesalahan saat menghapus data" });
   }
-}
+};
 
 const saveControllerVendor = async (req, res) => {
   try {
-    const formData = req.body
-    const created = await saveDataVendor(formData)
-    res.status(200).json({ message: 'created', data: created })
+    const formData = req.body;
+    const created = await saveDataVendor(formData);
+
+    await changeLog("VENDOR", "CREATE", created);
+
+    res.status(200).json({ message: "created", data: created });
   } catch (e) {
-    res.status(500).json({
-      error: e.message || 'internal server error',
-    })
+    console.error("Save vendor failed:", e);
+    res.status(500).json({ error: "Internal server error" });
   }
-}
+};
 
 const getControllerVendor = async (req, res) => {
   try {
-    const data = await readDataVendor()
-    res.status(200).json(data)
+    const data = await readDataVendor();
+    res.status(200).json(data);
   } catch (e) {
-    res.status(500).json({ message: 'Terjadi kesalahan saat membaca data', error: e.message })
+    console.error("Get vendor failed:", e);
+    res.status(500).json({ message: "Terjadi kesalahan saat membaca data" });
   }
-}
+};
 
 const updateControllerVendor = async (req, res) => {
-  const { id } = req.params
-  const updatedData = req.body
-
-  console.log('ID yang akan diperbarui:', id) // Debugging
-  console.log('Data yang diterima untuk update:', updatedData) // Debugging
+  const { id } = req.params;
+  const updatedData = req.body;
 
   try {
-    const result = await updateDataVendor(id, updatedData)
-    res.status(200).json(result)
+    const result = await updateDataVendor(id, updatedData);
+
+    // Simpan log perubahan
+    await changeLog("VENDOR", "UPDATE", result);
+
+    res.status(200).json(result);
   } catch (e) {
-    console.error('Gagal memperbarui data vendor:', e)
-    res.status(500).json({ message: 'Terjadi kesalahan saat memperbarui data', error: e.message })
-  }
-}
-
-const deleteControllerVendor = async (req, res) => {
-  const { id } = req.params
-  try {
-    const result = await deleteDataVendor(id)
-    res.status(200).json(result)
-  } catch (e) {
-    res.status(500).json({ message: 'Terjadi kesalahan saat menghapus data', error: e.message })
-  }
-}
-
-// Endpoint untuk mendapatkan log update
-const getUpdateLogHandler = async (req, res) => {
-  const logs = await readLogFile()
-  res.status(200).json(logs)
-}
-
-// Endpoint untuk mendapatkan last update
-const getLastUpdateHandler = async (req, res) => {
-  try {
-    const logs = await readLogFile()
-    if (logs.length === 0) {
-      return res.status(200).json({ message: 'Belum ada log update.', lastUpdate: null })
-    }
-
-    // Ambil log terakhir berdasarkan timestamp
-    const lastUpdate = logs[logs.length - 1]
-    res.status(200).json({ lastUpdate })
-  } catch (error) {
-    console.error('Gagal mendapatkan last update:', error)
+    console.error("Update vendor failed:", e);
     res
       .status(500)
-      .json({ message: 'Terjadi kesalahan saat mendapatkan last update', error: error.message })
+      .json({ message: "Terjadi kesalahan saat memperbarui data" });
   }
-}
+};
+
+const deleteControllerVendor = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await deleteDataVendor(id);
+
+    // Simpan log perubahan
+    await changeLog("VENDOR", "DELETE", result);
+
+    res.status(200).json(result);
+  } catch (e) {
+    console.error("Delete vendor failed:", e);
+    res.status(500).json({ message: "Terjadi kesalahan saat menghapus data" });
+  }
+};
 
 export {
   saveDataHandler,
@@ -223,6 +161,105 @@ export {
   getControllerVendor,
   updateControllerVendor,
   deleteControllerVendor,
-  getUpdateLogHandler,
-  getLastUpdateHandler, // Tambahkan handler ini ke ekspor
-}
+};
+
+// Export FAD data as CSV (ADMIN only route will be added in routes)
+const exportFadHandler = async (req, res) => {
+  try {
+    // reuse readDataFad with wide limit to retrieve data (or use pagination params)
+    const { q, status } = req.query;
+    // use a large limit but keep it reasonable to avoid memory issues
+    const limit = Number(req.query.limit) || 10000;
+    const page = Number(req.query.page) || 1;
+
+    const result = await readDataFad({ search: q ?? "", page, limit, status });
+    let rows = result.data || [];
+
+    // Support date range filtering on createdAt via query params: from, to, all
+    // Frontend sends ISO date strings (YYYY-MM-DD) from inputs. If `all` is true, skip filtering.
+    const fromParam = req.query.from;
+    const toParam = req.query.to;
+    const allParam = req.query.all;
+
+    if (!allParam) {
+      // apply filter only when at least one of from/to is provided
+      if (fromParam || toParam) {
+        let start = null;
+        let end = null;
+        if (fromParam) {
+          const d = new Date(fromParam);
+          if (!isNaN(d)) {
+            start = new Date(d);
+            start.setHours(0, 0, 0, 0);
+          }
+        }
+        if (toParam) {
+          const d = new Date(toParam);
+          if (!isNaN(d)) {
+            end = new Date(d);
+            end.setHours(23, 59, 59, 999);
+          }
+        }
+
+        if (start || end) {
+          rows = rows.filter((r) => {
+            if (!r.createdAt) return false;
+            const created = new Date(r.createdAt);
+            if (isNaN(created)) return false;
+            if (start && end) return created >= start && created <= end;
+            if (start) return created >= start;
+            if (end) return created <= end;
+            return true;
+          });
+        }
+      }
+    }
+
+    // Construct CSV header and rows with formatted dates
+    const header = [
+      "id",
+      "noFad",
+      "item",
+      "plant",
+      "terimaFad",
+      "terimaBbm",
+      "bast",
+      "vendor",
+      "status",
+      "deskripsi",
+      "keterangan",
+      "createdAt",
+    ];
+
+    const lines = [header.join(",")];
+
+    for (const r of rows) {
+      const values = [
+        r.id,
+        `"${String(r.noFad ?? "").replace(/"/g, '""')}"`,
+        `"${String(r.item ?? "").replace(/"/g, '""')}"`,
+        `"${String(r.plant ?? "").replace(/"/g, '""')}"`,
+        `"${fmtDateToDDMMYYYY(r.terimaFad)}"`,
+        `"${fmtDateToDDMMYYYY(r.terimaBbm)}"`,
+        `"${fmtDateToDDMMYYYY(r.bast)}"`,
+        `"${String(r.vendor ?? r.vendorRel?.name ?? "").replace(/"/g, '""')}"`,
+        `"${String(r.status ?? "").replace(/"/g, '""')}"`,
+        `"${String(r.deskripsi ?? "").replace(/"/g, '""')}"`,
+        `"${String(r.keterangan ?? "").replace(/"/g, '""')}"`,
+        r.createdAt ? fmtDateTimeDDMMYYYY_HHmmss(r.createdAt) : "",
+      ];
+      lines.push(values.join(","));
+    }
+
+    const csv = lines.join("\n");
+    const filename = `fad-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.status(200).send(csv);
+  } catch (error) {
+    console.error("Export FAD failed:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export { exportFadHandler };

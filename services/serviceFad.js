@@ -5,12 +5,10 @@ import {
   startOfDay,
   tryParseDate,
   tryParseMonth,
-} from "../utils/Helper.js";
+} from "../utils/formatedDate.js";
 
 dotenv.config();
 
-const filePath = process.env.DATA_FAD_PATH;
-const dataVendor = process.env.DATA_VENDOR_PATH;
 const prisma = new PrismaClient();
 
 // Fad: menggunakan Prisma MySQL
@@ -33,7 +31,7 @@ const saveDataFad = async (formData) => {
     const created = await prisma.fad.create({ data });
     return created;
   } catch (e) {
-    console.log("Gagal menyimpan data ke DB", e);
+    console.error("Gagal menyimpan data ke DB", e);
     throw e;
   }
 };
@@ -64,6 +62,7 @@ const readDataFad = async (options = {}) => {
       "deskripsi",
       "keterangan",
       "vendorRel.name",
+      "createdAt",
     ]);
     const dateFields = ["terimaFad", "terimaBbm", "bast"];
 
@@ -80,7 +79,6 @@ const readDataFad = async (options = {}) => {
         const gte = startOfDay(asDate);
         const lte = endOfDay(asDate);
         dateFields.forEach((df) => {
-          // jika user batasi fields, hormati itu
           if (!requested || requested.includes(df)) {
             orClauses.push({ [df]: { gte, lte } });
           }
@@ -112,7 +110,6 @@ const readDataFad = async (options = {}) => {
           "noFad",
           "item",
           "plant",
-          // sengaja tidak menambahkan dateFields di sini sebagai contains
           "vendor",
           "vendorRel.name",
           "status",
@@ -126,7 +123,18 @@ const readDataFad = async (options = {}) => {
     let where = {};
     if (status) {
       const s = String(status).trim();
-      const statusFilter = { status: { contains: s } };
+      // support comma-separated list: e.g. "open,hold"
+      const parts = s
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
+      let statusFilter;
+      if (parts.length > 1) {
+        // build OR of contains for each requested status
+        statusFilter = { OR: parts.map((p) => ({ status: { contains: p } })) };
+      } else {
+        statusFilter = { status: { contains: parts[0] } };
+      }
       if (orClauses.length) {
         where = { AND: [{ OR: orClauses }, statusFilter] };
       } else {
@@ -146,7 +154,8 @@ const readDataFad = async (options = {}) => {
         include: { vendorRel: true },
         skip,
         take,
-        orderBy: { terimaFad: "desc" },
+        // order by creation time so newest records appear first regardless of UUID
+        orderBy: { createdAt: "desc" },
       }),
     ]);
 
@@ -160,6 +169,7 @@ const readDataFad = async (options = {}) => {
       deskripsi: f.deskripsi ?? "",
       keterangan: f.keterangan ?? "",
       vendorRel: f.vendorRel ?? null,
+      createdAt: f.createdAt ?? null,
     }));
 
     return {
@@ -167,7 +177,7 @@ const readDataFad = async (options = {}) => {
       meta: { total, page: Number(page), limit: Number(limit) },
     };
   } catch (e) {
-    console.log("Gagal membaca data dari DB", e);
+    console.error("Gagal membaca data dari DB", e);
     throw e;
   }
 };
@@ -194,7 +204,7 @@ const updateDataFad = async (id, updatedData) => {
     const updated = await prisma.fad.update({ where: { id }, data });
     return { message: "Data berhasil diperbarui", data: updated };
   } catch (e) {
-    console.log("Gagal memperbarui data di DB", e);
+    console.error("Gagal memperbarui data di DB", e);
     throw new Error("Gagal memperbarui data");
   }
 };
@@ -205,7 +215,7 @@ const deleteDataFad = async (id) => {
     const deleted = await prisma.fad.delete({ where: { id } });
     return { message: "Data berhasil dihapus", data: deleted };
   } catch (e) {
-    console.log("Gagal menghapus data di DB", e);
+    console.error("Gagal menghapus data di DB", e);
     throw new Error("Gagal menghapus data");
   }
 };
@@ -218,7 +228,7 @@ const saveDataVendor = async (formData) => {
     });
     return v;
   } catch (e) {
-    console.log("Gagal menyimpan vendor", e);
+    console.error("Gagal menyimpan vendor", e);
     throw e;
   }
 };
@@ -228,7 +238,7 @@ const readDataVendor = async () => {
     const list = await prisma.vendor.findMany({ orderBy: { name: "asc" } });
     return list;
   } catch (e) {
-    console.log("Gagal membaca vendor", e);
+    console.error("Gagal membaca vendor", e);
     throw e;
   }
 };
@@ -241,7 +251,7 @@ const updateDataVendor = async (id, updatedData) => {
     const updated = await prisma.vendor.update({ where: { id }, data });
     return { message: "Data vendor berhasil diperbarui", data: updated };
   } catch (e) {
-    console.log("Gagal memperbarui data vendor", e);
+    console.error("Gagal memperbarui data vendor", e);
     throw new Error("Gagal memperbarui data vendor");
   }
 };
@@ -251,7 +261,7 @@ const deleteDataVendor = async (id) => {
     const deleted = await prisma.vendor.delete({ where: { id } });
     return { message: "Data vendor berhasil dihapus", data: deleted };
   } catch (e) {
-    console.log("Gagal menghapus data vendor", e);
+    console.error("Gagal menghapus data vendor", e);
     throw new Error("Gagal menghapus data vendor");
   }
 };
@@ -275,6 +285,5 @@ export {
   readDataVendor,
   updateDataVendor,
   deleteDataVendor,
-  // utility to close prisma client on shutdown
   shutdownPrisma,
 };

@@ -19,9 +19,10 @@ model Fad {
   vendorId   String?  @map("vendorId")
   vendorRel  Vendor?  @relation(fields: [vendorId], references: [id])
   status     String?
-  deskripsi  String?
-  keterangan String?
+  deskripsi  String?  @db.VarChar(500)
+  keterangan String?  @db.VarChar(500)
   bast       DateTime? @map("bast")
+  createdAt  DateTime @default(now())
 
   @@map("Fad")
 }
@@ -35,6 +36,38 @@ model Vendor {
 
   @@map("Vendor")
 }
+
+model User {
+  id        String @id @default(uuid())
+  username  String @unique
+  password  String
+  role      Role @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime? 
+  status    String @default("ACTIVE")
+
+  RefreshSessions RefreshSession[]
+
+} 
+
+enum Role { 
+  USER
+  ADMIN
+}
+
+model RefreshSession {
+  id              String @id @default(uuid())
+  userId          String
+  revoked         Boolean @default(false)
+  replacedById    String?
+  createdAt       DateTime @default(now())
+
+  user            User @relation(fields:[userId] , references : [id])
+
+  @@index([userId])
+
+}
+
 
 model ChangeLog {
 

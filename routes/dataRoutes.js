@@ -1,4 +1,4 @@
-import express from 'express'
+import express from "express";
 import {
   saveDataHandler,
   getDataHandler,
@@ -8,32 +8,77 @@ import {
   updateControllerVendor,
   getControllerVendor,
   deleteControllerVendor,
-  getLastUpdateHandler,
-} from '../controllers/dataController.js'
+} from "../controllers/dataController.js";
+import { exportFadHandler } from "../controllers/dataController.js";
+import { getChangeLogs } from "../controllers/changeLogController.js";
+import { exportChangeLogs } from "../controllers/changeLogController.js";
 
-const router = express.Router()
+import { authenticate, authorize } from "../middlewares/authMiddlewares.js";
 
-// Rute untuk menyimpan data
-router.post('/v1/save-fad', saveDataHandler)
+const router = express.Router();
 
-// Rute untuk mengambil data
-router.get('/v1/get-fad', getDataHandler)
-
-// Rute untuk memperbarui data berdasarkan ID
-router.put('/v1/update-fad/:id', updateDataHandler)
-
-// Rute untuk menghapus data berdasarkan ID
-router.delete('/v1/delete-fad/:id', deleteDataHandler)
+// Routes Data FAD
+router.post(
+  "/v1/save-fad",
+  authenticate,
+  authorize(["ADMIN"]),
+  saveDataHandler
+);
+router.get("/v1/get-fad", getDataHandler);
+router.put(
+  "/v1/update-fad/:id",
+  authenticate,
+  authorize(["ADMIN"]),
+  updateDataHandler
+);
+router.delete(
+  "/v1/delete-fad/:id",
+  authenticate,
+  authorize(["ADMIN"]),
+  deleteDataHandler
+);
 
 // Router Vendor
-router.post('/v1/save-vendor', saveControllerVendor)
+router.post(
+  "/v1/save-vendor",
+  authenticate,
+  authorize(["ADMIN"]),
+  saveControllerVendor
+);
+router.put(
+  "/v1/update-vendor/:id",
+  authenticate,
+  authorize(["ADMIN"]),
+  updateControllerVendor
+);
+router.get(
+  "/v1/get-vendor",
+  authenticate,
+  authorize(["ADMIN"]),
+  getControllerVendor
+);
+router.delete(
+  "/v1/delete-vendor/:id",
+  authenticate,
+  authorize(["ADMIN"]),
+  deleteControllerVendor
+);
 
-router.put('/v1/update-vendor/:id', updateControllerVendor)
+// Export FAD CSV
+router.get(
+  "/v1/export-fad",
+  authenticate,
+  authorize(["ADMIN"]),
+  exportFadHandler
+);
 
-router.get('/v1/get-vendor', getControllerVendor)
+// Log
+router.get("/getChangeLog", getChangeLogs);
+router.get(
+  "/getChangeLog/export",
+  authenticate,
+  authorize(["ADMIN"]),
+  exportChangeLogs
+);
 
-router.delete('/v1/delete-vendor/:id', deleteControllerVendor)
-
-router.get('/v1/get-log-update', getLastUpdateHandler)
-
-export default router
+export default router;
