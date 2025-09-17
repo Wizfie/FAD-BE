@@ -1,17 +1,14 @@
+// server/src/server.js
 import express from "express";
-import bodyParser from "body-parser";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
+import cookieParser from "cookie-parser";
 import routes from "./routes/index.js";
 import { shutdownPrisma } from "./services/serviceFad.js";
-import dotenv from "dotenv";
-import cookieParser from "cookie-parser";
-const app = express();
-const port = process.env.PORT || 5001;
-dotenv.config();
+import { env } from "./config/env.js";
 
-// Validate required environment variables early to avoid insecure startup
+// ---------- Validasi ENV penting ----------
 const requiredEnvs = [
   "DATABASE_URL",
   "ACCESS_TOKEN_SECRET",
@@ -23,101 +20,97 @@ if (missing.length > 0) {
   console.error(
     "Create a .env file or set these variables and restart the server."
   );
-  // Exit with failure to avoid running in insecure state
   process.exit(1);
 }
 
-// Daftar origins yang diizinkan
+// ---------- CORS ----------
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
   : [];
 
-// In production, ALLOWED_ORIGINS must be set to avoid accepting requests from
-// arbitrary origins when cookies are used for auth.
-if (process.env.NODE_ENV === "production") {
-  if (!process.env.ALLOWED_ORIGINS || allowedOrigins.length === 0) {
-    console.error(
-      "ALLOWED_ORIGINS is not set. In production you must set ALLOWED_ORIGINS to a comma-separated list of allowed origins."
-    );
-    process.exit(1);
-  }
+if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
+  console.error(
+    "ALLOWED_ORIGINS is not set. In production you must set ALLOWED_ORIGINS to a comma-separated list of allowed origins."
+  );
+  process.exit(1);
 }
 
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS not allowed"), false);
-    }
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) callback(null, true);
+    else callback(new Error("CORS not allowed"), false);
   },
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true, // Izinkan pengiriman cookie
+  credentials: true,
 };
 
-// Try to enable Helmet (security headers) if installed. Keep optional so dev
-// environment without the package won't crash the server.
+// ---------- App ----------
+const app = express();
+const port = env.PORT || 5001;
+
+// Security headers (opsional): aktif jika paket tersedia
 try {
-  const _helmet = await import("helmet");
-  const helmet = _helmet.default;
-
-  // Basic security headers (no CSP configured here)
+  const { default: helmet } = await import("helmet");
   app.use(helmet());
-
-  // // HSTS is beneficial in production to force HTTPS
-  // if (process.env.NODE_ENV === "production") {
-  //   app.use(
-  //     helmet.hsts({
-  //       maxAge: 31536000,
-  //       includeSubDomains: true,
-  //       preload: true,
-  //     })
-  //   );
-  // }
-} catch (e) {
+} catch {
   console.warn(
     "Optional package 'helmet' not available — security headers disabled."
   );
 }
 
-// Menggunakan CORS middleware dengan konfigurasi yang lebih fleksibel
+// Middleware dasar
 app.use(cors(corsOptions));
-app.use(bodyParser.json());
 app.use(express.json());
+app.use(cookieParser());
 
+// ---------- Static Uploads ----------
+console.log("UPLOAD_DIR resolved to:", env.UPLOAD_DIR);
+fs.mkdirSync(env.UPLOAD_DIR, { recursive: true });
+app.use("/uploads", express.static(env.UPLOAD_DIR));
+
+// ---------- Static file lain (contoh user guide) ----------
 const folderPath = "C:\\MyLocal\\Data\\DataFad";
 const filePathGuide = path.join(folderPath, "Guide.pdf");
-
-app.get("/userguide", async (req, res) => {
+app.get("/userguide", async (_req, res) => {
   try {
     const data = await fs.promises.readFile(filePathGuide);
-    res.contentType("application/pdf");
-    res.send(data);
+    res.contentType("application/pdf").send(data);
   } catch (err) {
     console.error("Gagal membaca file panduan pengguna", err);
-    res.status(500).send({
+    res.status(500).json({
       message: "Gagal membaca file panduan pengguna",
       error: err.message,
     });
   }
 });
 
-app.use(express.json());
-app.use(cookieParser());
-
-// Menggunakan routes untuk data
+// ---------- API Routes ----------
 app.use("/api", routes);
 
-app.listen(port, () => {
-  console.info("Server Running in port " + port);
+// ---------- 404 Handler ----------
+app.use((_req, res) => {
+  res.status(404).json({ message: "Not Found" });
 });
 
+// ---------- Error Handler ----------
+app.use((err, _req, res, _next) => {
+  console.error("Unhandled error:", err);
+  res.status(err.status || 500).json({
+    message: err.message || "Internal Server Error",
+  });
+});
+
+// ---------- Start ----------
+app.listen(port, () => {
+  console.info(`Server running on http://localhost:${port}`);
+});
+
+// ---------- Graceful Shutdown ----------
 const shutdown = async () => {
   console.log("Shutting down server...");
   await shutdownPrisma();
   process.exit(0);
 };
-
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

@@ -79,3 +79,25 @@ model ChangeLog {
 
   @@map("ChangeLog")
 }
+
+model Area {
+  id Int @id @default(autoincrement())
+  name String @unique
+  photos Photo[]
+}
+
+model Photo {
+  id  Int @id @default(autoincrement())
+  areaId Int 
+  area Area @relation(fields : [areaId] , references : [id])
+  filename String
+  originalName String
+  mime String
+  size Int
+  url String
+  takenAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([areaId , createdAt])
+  @@index([createdAt])
+}
