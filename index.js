@@ -67,8 +67,14 @@ app.use(cookieParser());
 // ---------- Static Uploads ----------
 console.log("UPLOAD_DIR resolved to:", env.UPLOAD_DIR);
 fs.mkdirSync(env.UPLOAD_DIR, { recursive: true });
-app.use("/uploads", express.static(env.UPLOAD_DIR));
-
+app.use(
+  "/uploads",
+  (req, res, next) => {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  },
+  express.static(env.UPLOAD_DIR)
+);
 // ---------- Static file lain (contoh user guide) ----------
 const folderPath = "C:\\MyLocal\\Data\\DataFad";
 const filePathGuide = path.join(folderPath, "Guide.pdf");

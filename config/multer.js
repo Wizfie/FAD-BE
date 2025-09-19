@@ -18,9 +18,27 @@ export const upload = multer({
     fileSize: 5 * 1024 * 1024,
   },
   fileFilter: (_req, file, cb) => {
-    const allowed = ["image/jpeg", "image/png"];
-    if (!allowed.includes(file.mimetype))
-      throw new Error("format file tidak di izinkan");
-    cb(null, true);
+    const allowedMimes = [
+      "image/jpeg",
+      "image/png",
+      "image/pjpeg",
+      "image/jpg",
+      "image/heic",
+    ];
+    const allowedExts = [".jpg", ".jpeg", ".png", ".heic"];
+
+    const mimeOk = allowedMimes.includes((file.mimetype || "").toLowerCase());
+    const extOk = allowedExts.includes(
+      path.extname(file.originalname).toLowerCase()
+    );
+    if (mimeOk && extOk) return cb(null, true);
+    return cb(
+      new Error(
+        `format file tidak diizinkan: mimetype=${
+          file.mimetype
+        }, ext=${path.extname(file.originalname)}`
+      )
+    );
+    false;
   },
 });

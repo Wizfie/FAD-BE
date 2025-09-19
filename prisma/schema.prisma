@@ -91,6 +91,8 @@ model Photo {
   areaId Int 
   area Area @relation(fields : [areaId] , references : [id])
   filename String
+  thumbFilename String?
+  thumbUrl String?
   originalName String
   mime String
   size Int
