@@ -84,6 +84,24 @@ model Area {
   id Int @id @default(autoincrement())
   name String @unique
   photos Photo[]
+  comparisonGroups ComparisonGroup[]
+}
+
+enum PhotoCategory {
+  BEFORE
+  ACTION
+  AFTER
+}
+
+model ComparisonGroup {
+  id Int @id @default(autoincrement())
+  title String?
+  description String? @db.VarChar(500)
+  areaId Int?
+  area Area? @relation(fields: [areaId], references: [id])
+  photos Photo[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime? 
 }
 
 model Photo {
@@ -98,6 +116,10 @@ model Photo {
   size Int
   url String
   takenAt DateTime?
+  keterangan String? @db.VarChar(500)
+  category PhotoCategory?
+  comparisonGroupId Int?
+  comparisonGroup ComparisonGroup? @relation(fields: [comparisonGroupId], references: [id])
   createdAt DateTime @default(now())
 
   @@index([areaId , createdAt])

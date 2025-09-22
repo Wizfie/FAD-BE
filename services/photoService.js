@@ -1,3 +1,10 @@
+/**
+ * PhotoService
+ * Extended to support:
+ * - per-file metadata (category, takenAt, comparisonGroupId)
+ * - creation/listing of ComparisonGroup
+ * - listing photos with filters: category, comparisonGroupId, groupByComparison
+ */
 import { prisma } from "../utils/prisma.js";
 import { getRange } from "../utils/dateRange.js";
 import { env } from "../config/env.js";
@@ -44,9 +51,9 @@ async function makeThumb(fullPath, thumbPath, mime) {
 }
 
 export class PhotoService {
-  static async createMany({ areaId, files, publicBaseUrl, takenAt }) {
-    const taken = takenAt ? new Date(takenAt) : undefined;
-
+  // createMany now accepts files plus optional per-file metadata array (fileMeta)
+  // fileMeta is an array of objects: { category, takenAt, comparisonGroupId }
+  static async createMany({ areaId, files, publicBaseUrl, fileMeta = [] }) {
     // 1) HEIC → JPEG
     for (const f of files) {
       if (
@@ -81,29 +88,98 @@ export class PhotoService {
       }
     }
 
-    const photosData = files.map((f) => ({
-      areaId,
-      filename: f.filename,
-      thumbFilename: f._thumbFilename ?? null,
-      originalName: f.originalname || "",
-      mime: f.mimetype,
-      size: f.size,
-      url: `${publicBaseUrl}/uploads/${f.filename}`,
-      thumbUrl: f._thumbFilename
-        ? `${publicBaseUrl}/uploads/${f._thumbFilename}`
-        : null,
+    const photosData = files.map((f, idx) => {
+      const meta = fileMeta[idx] || {};
+      const taken = meta.takenAt ? new Date(meta.takenAt) : undefined;
+      // Safety: normalize and validate category
+      const allowed = ["before", "action", "after"];
+      let cat = null;
+      if (meta.category) {
+        const c = String(meta.category).toLowerCase();
+        cat = allowed.includes(c) ? c.toUpperCase() : null;
+      }
+      return {
+        areaId,
+        filename: f.filename,
+        thumbFilename: f._thumbFilename ?? null,
+        originalName: f.originalname || "",
+        mime: f.mimetype,
+        size: f.size,
+        url: `${publicBaseUrl}/uploads/${f.filename}`,
+        thumbUrl: f._thumbFilename
+          ? `${publicBaseUrl}/uploads/${f._thumbFilename}`
+          : null,
+        takenAt: taken,
+        keterangan: meta.keterangan || null,
+        category: cat,
+        comparisonGroupId: meta.comparisonGroupId
+          ? Number(meta.comparisonGroupId)
+          : null,
+      };
+    });
 
-      takenAt: taken,
-    }));
-    return prisma.photo.createMany({ data: photosData });
+    // Use createMany for bulk insert but createMany doesn't return created rows.
+    // We'll perform createMany for performance and then return count.
+    try {
+      const result = await prisma.photo.createMany({ data: photosData });
+      return result;
+    } catch (err) {
+      // Rollback: delete files and thumbs written to disk
+      for (const f of files) {
+        try {
+          const p = path.join(env.UPLOAD_DIR, f.filename);
+          if (fs.existsSync(p)) fs.unlinkSync(p);
+        } catch (e) {
+          console.warn("Failed cleanup file:", f.filename, e);
+        }
+        if (f._thumbFilename) {
+          try {
+            const tp = path.join(env.UPLOAD_DIR, f._thumbFilename);
+            if (fs.existsSync(tp)) fs.unlinkSync(tp);
+          } catch (e) {
+            console.warn("Failed cleanup thumb:", f._thumbFilename, e);
+          }
+        }
+      }
+      throw err;
+    }
   }
 
-  static async list({ areaId, period, date, page = 1, pageSize = 24 }) {
+  static async list({
+    areaId,
+    period,
+    date,
+    page = 1,
+    pageSize = 24,
+    category,
+    comparisonGroupId,
+    groupByComparison = false,
+  }) {
     const where = {};
     if (areaId) where.areaId = areaId;
-    if (period) {
+    if (category) where.category = category.toUpperCase();
+    if (comparisonGroupId) where.comparisonGroupId = Number(comparisonGroupId);
+    if (period && !comparisonGroupId) {
+      // only apply period filter when not querying by group (group should own its own dates)
       const { start, end } = getRange(date, period);
       where.createdAt = { gte: start, lte: end };
+    }
+
+    if (groupByComparison) {
+      // Return grouped summary by comparisonGroupId
+      const groups = await prisma.comparisonGroup.findMany({
+        where: areaId ? { areaId } : {},
+        include: {
+          photos: { include: { area: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: pageSize,
+        skip: (page - 1) * pageSize,
+      });
+      const total = await prisma.comparisonGroup.count({
+        where: areaId ? { areaId } : {},
+      });
+      return { total, items: groups, page, pageSize };
     }
 
     const [total, items] = await Promise.all([
@@ -117,6 +193,41 @@ export class PhotoService {
       }),
     ]);
     return { total, items, page, pageSize };
+  }
+
+  // ComparisonGroup helpers
+  static async createGroup({ title, areaId }) {
+    return prisma.comparisonGroup.create({
+      data: { title, areaId: areaId ? Number(areaId) : null },
+    });
+  }
+
+  static async updateGroup(id, data) {
+    const payload = {};
+    if (data.title !== undefined) payload.title = data.title;
+    if (data.description !== undefined) payload.description = data.description;
+    return prisma.comparisonGroup.update({
+      where: { id: Number(id) },
+      data: payload,
+    });
+  }
+
+  static async listGroups({ areaId, page = 1, pageSize = 24 }) {
+    const where = {};
+    if (areaId) where.areaId = Number(areaId);
+    const [total, groups] = await Promise.all([
+      prisma.comparisonGroup.count({ where }),
+      prisma.comparisonGroup.findMany({
+        where,
+        include: {
+          photos: { orderBy: { createdAt: "desc" }, take: 10 },
+        },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    return { total, items: groups, page, pageSize };
   }
 
   static async remove(id) {
