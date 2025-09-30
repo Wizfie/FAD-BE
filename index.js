@@ -52,7 +52,29 @@ const port = env.PORT || 5001;
 // Security headers (opsional): aktif jika paket tersedia
 try {
   const { default: helmet } = await import("helmet");
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'"],
+          imgSrc: ["'self'", "data:", "https:"],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          mediaSrc: ["'self'"],
+          frameSrc: ["'none'"],
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+      hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true,
+      },
+    })
+  );
 } catch {
   console.warn(
     "Optional package 'helmet' not available — security headers disabled."
@@ -76,7 +98,8 @@ app.use(
   express.static(env.UPLOAD_DIR)
 );
 // ---------- Static file lain (contoh user guide) ----------
-const folderPath = "C:\\MyLocal\\Data\\DataFad";
+const folderPath =
+  process.env.DATA_FOLDER_PATH || path.join(process.cwd(), "data");
 const filePathGuide = path.join(folderPath, "Guide.pdf");
 app.get("/userguide", async (_req, res) => {
   try {

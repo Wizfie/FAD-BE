@@ -1,6 +1,6 @@
-// helpers.js
+// Utility untuk format dan parsing tanggal
 
-// ===== Util dasar =====
+// ===== Utilitas dasar =====
 const isValidDate = (d) => d instanceof Date && !isNaN(d.getTime());
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -8,7 +8,7 @@ const pad3 = (n) => String(n).padStart(3, "0");
 
 // ===== Parser umum =====
 
-// Parse "YYYY-MM-DD" sebagai tanggal lokal (00:00:00.000)
+// Parse format "YYYY-MM-DD" sebagai tanggal lokal
 function parseYMDLocal(y, m, d) {
   const dt = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
   return dt.getFullYear() === Number(y) &&
@@ -18,7 +18,7 @@ function parseYMDLocal(y, m, d) {
     : null;
 }
 
-// Parse "YYYY-MM-DD HH:mm:ss.SSS" (spasi atau 'T'), opsional .SSS, opsional zona 'Z'.
+// Parse datetime dengan berbagai format
 // options.assume: "local" (default) | "utc"
 function parseDateTime(str, options = { assume: "local" }) {
   if (!str || typeof str !== "string") return null;
@@ -70,7 +70,11 @@ function parseDateTime(str, options = { assume: "local" }) {
   }
 }
 
-// Parser ringan (multi-format) untuk tanggal (tanpa jam)
+/**
+ * Parser ringan multi-format untuk tanggal (tanpa jam)
+ * @param {string} s - String tanggal (YYYY-MM-DD, DD/MM/YYYY, DD/MM)
+ * @returns {Date|null} - Objek Date atau null jika gagal parse
+ */
 const tryParseDate = (s) => {
   if (!s) return null;
   const t = String(s).trim();
@@ -100,7 +104,11 @@ const tryParseDate = (s) => {
   return null;
 };
 
-// Parser "YYYY-MM" atau "MM-YYYY" → rentang awal-akhir bulan (local)
+/**
+ * Parser bulan "YYYY-MM" atau "MM-YYYY" untuk rentang awal-akhir bulan
+ * @param {string} s - String bulan (YYYY-MM atau MM-YYYY)
+ * @returns {Object|null} - {start, end} tanggal atau null
+ */
 const tryParseMonth = (s) => {
   if (!s) return null;
   const t = s.trim();
@@ -132,7 +140,11 @@ const tryParseMonth = (s) => {
   return null;
 };
 
-// Parser generik yang mencoba Date bawaan sebagai fallback
+/**
+ * Parser tanggal generik dengan fallback ke Date bawaan
+ * @param {*} v - Input tanggal (string, Date, atau lainnya)
+ * @returns {Date|null} - Objek Date yang valid atau null
+ */
 function parseDate(v) {
   if (!v) return null;
   if (v instanceof Date) return isValidDate(v) ? v : null;
@@ -148,16 +160,22 @@ function parseDate(v) {
 
 // ===== Formatter =====
 
-// Format "DD/MM/YYYY"
-// contoh: 27/08/2025
+/**
+ * Format tanggal ke "DD/MM/YYYY" - contoh: 27/08/2025
+ * @param {*} v - Input tanggal
+ * @returns {string} - Format DD/MM/YYYY atau "-" jika invalid
+ */
 function fmtDateToDDMMYYYY(v) {
   const d = v instanceof Date ? v : parseDate(v);
   if (!isValidDate(d)) return "-";
   return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
-// Format "HH:mm:ss"
-// contoh: 03:06:04
+/**
+ * Format waktu ke "HH:mm:ss" - contoh: 03:06:04
+ * @param {*} v - Input tanggal/waktu
+ * @returns {string} - Format HH:mm:ss atau "-" jika invalid
+ */
 function fmtTimeToHHmmss(v) {
   const d = v instanceof Date ? v : parseDate(v);
   if (!isValidDate(d)) return "-";
@@ -166,16 +184,22 @@ function fmtTimeToHHmmss(v) {
   )}`;
 }
 
-// Format gabungan "DD/MM/YYYY HH:mm:ss"
-// contoh: 27/08/2025 03:06:04
+/**
+ * Format tanggal dan waktu ke "DD/MM/YYYY HH:mm:ss" - contoh: 27/08/2025 03:06:04
+ * @param {*} v - Input tanggal/waktu
+ * @returns {string} - Format DD/MM/YYYY HH:mm:ss atau "-" jika invalid
+ */
 function fmtDateTimeDDMMYYYY_HHmmss(v) {
   const d = v instanceof Date ? v : parseDate(v);
   if (!isValidDate(d)) return "-";
   return `${fmtDateToDDMMYYYY(d)} ${fmtTimeToHHmmss(d)}`;
 }
 
-// Format ala SQL "YYYY-MM-DD HH:mm:ss.SSS"
-// contoh: 2025-08-27 03:06:04.527
+/**
+ * Format tanggal waktu untuk SQL "YYYY-MM-DD HH:mm:ss.SSS" - contoh: 2025-08-27 03:06:04.527
+ * @param {*} v - Input tanggal/waktu
+ * @returns {string} - Format SQL timestamp atau "-" jika invalid
+ */
 function fmtDateTimeSQL(v) {
   const d = v instanceof Date ? v : parseDate(v);
   if (!isValidDate(d)) return "-";
@@ -189,7 +213,11 @@ function fmtDateTimeSQL(v) {
 
 // ===== Range harian =====
 
-// Awal hari (00:00:00.000)
+/**
+ * Dapatkan awal hari (00:00:00.000) dari tanggal
+ * @param {*} input - Input tanggal
+ * @returns {Date|null} - Date pada awal hari atau null
+ */
 const startOfDay = (input) => {
   const d = input instanceof Date ? new Date(input) : parseDate(input);
   if (!isValidDate(d)) return null;
@@ -197,7 +225,11 @@ const startOfDay = (input) => {
   return d;
 };
 
-// Akhir hari (23:59:59.999)
+/**
+ * Dapatkan akhir hari (23:59:59.999) dari tanggal
+ * @param {*} input - Input tanggal
+ * @returns {Date|null} - Date pada akhir hari atau null
+ */
 const endOfDay = (input) => {
   const d = input instanceof Date ? new Date(input) : parseDate(input);
   if (!isValidDate(d)) return null;

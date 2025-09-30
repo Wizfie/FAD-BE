@@ -1,9 +1,9 @@
 /**
- * PhotoService
- * Extended to support:
- * - per-file metadata (category, takenAt, comparisonGroupId)
- * - creation/listing of ComparisonGroup
- * - listing photos with filters: category, comparisonGroupId, groupByComparison
+ * PhotoService - Service untuk mengelola foto
+ * Dukungan:
+ * - metadata per-file (category, takenAt, comparisonGroupId)
+ * - pembuatan/listing ComparisonGroup
+ * - listing foto dengan filter: category, comparisonGroupId, groupByComparison
  */
 import { prisma } from "../utils/prisma.js";
 import { getRange } from "../utils/dateRange.js";
@@ -12,12 +12,18 @@ import path from "path";
 import fs from "fs";
 import sharp from "sharp";
 
+/**
+ * Dapatkan nama thumbnail dari filename
+ */
 function getThumbName(filename) {
   const ext = path.extname(filename);
   const name = path.basename(filename, ext);
   return `${name}_thumb${ext}`;
 }
 
+/**
+ * Konversi file HEIC ke JPEG
+ */
 async function convertHeicToJpeg(file) {
   const srcPath = path.join(env.UPLOAD_DIR, file.filename); // .../xxx.heic
   const dstName = file.filename.replace(/\.heic$/i, ".jpg"); // xxx.jpg
@@ -196,9 +202,13 @@ export class PhotoService {
   }
 
   // ComparisonGroup helpers
-  static async createGroup({ title, areaId }) {
+  static async createGroup({ title, areaId, description }) {
     return prisma.comparisonGroup.create({
-      data: { title, areaId: areaId ? Number(areaId) : null },
+      data: {
+        title,
+        areaId: areaId ? Number(areaId) : null,
+        description: description || null,
+      },
     });
   }
 
@@ -206,6 +216,11 @@ export class PhotoService {
     const payload = {};
     if (data.title !== undefined) payload.title = data.title;
     if (data.description !== undefined) payload.description = data.description;
+    if (data.keterangan !== undefined) payload.keterangan = data.keterangan;
+    if (data.summary !== undefined) payload.summary = data.summary;
+
+    console.log("PhotoService.updateGroup payload:", payload);
+
     return prisma.comparisonGroup.update({
       where: { id: Number(id) },
       data: payload,
@@ -221,13 +236,35 @@ export class PhotoService {
         where,
         include: {
           photos: { orderBy: { createdAt: "desc" }, take: 10 },
+          _count: { select: { photos: true } },
         },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
     ]);
-    return { total, items: groups, page, pageSize };
+
+    // Add completion status to each group
+    const groupsWithStatus = groups.map((group) => {
+      const photos = group.photos || [];
+      const categories = {
+        before: photos.filter((p) => p.category === "BEFORE").length,
+        action: photos.filter((p) => p.category === "ACTION").length,
+        after: photos.filter((p) => p.category === "AFTER").length,
+      };
+
+      const isComplete =
+        categories.before > 0 && categories.action > 0 && categories.after > 0;
+
+      return {
+        ...group,
+        categories,
+        isComplete,
+        canAddPhotos: !isComplete,
+      };
+    });
+
+    return { total, items: groupsWithStatus, page, pageSize };
   }
 
   static async remove(id) {

@@ -5,11 +5,14 @@ import { prisma } from "../utils/prisma.js";
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET;
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET;
 
-// Token TTL defaults — use short access token and reasonable refresh token
-// Format supports strings like '15m', '1h', '7d' compatible with jsonwebtoken
+// Token TTL default — gunakan access token pendek dan refresh token wajar
+// Format mendukung string seperti '15m', '1h', '7d' kompatibel dengan jsonwebtoken
 const ACCESS_TTL = process.env.ACCESS_TOKEN_TTL || "15m";
 const REFRESH_TTL = process.env.REFRESH_TOKEN_TTL || "7d";
 
+/**
+ * Buat access token untuk user
+ */
 function signAccessToken(user) {
   return jwt.sign(
     {
@@ -21,6 +24,9 @@ function signAccessToken(user) {
   );
 }
 
+/**
+ * Buat refresh token dengan jti
+ */
 function signRefreshToken(userId, jti) {
   return jwt.sign(
     {
@@ -32,22 +38,38 @@ function signRefreshToken(userId, jti) {
   );
 }
 
-export const registerUser = async (username, password, role = "USER") => {
+/**
+ * Registrasi user baru
+ */
+export const registerUser = async (
+  username,
+  password,
+  role = "EXTERNAL",
+  email = null,
+  status = "ACTIVE"
+) => {
   const hashedPassword = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: {
       username,
       password: hashedPassword,
       role,
+      email,
+      status,
     },
   });
   return {
     id: user.id,
     username: user.username,
     role: user.role,
+    email: user.email,
+    status: user.status,
   };
 };
 
+/**
+ * Login user dan buat session
+ */
 export const loginUser = async (username, password) => {
   const user = await prisma.user.findUnique({ where: { username } });
   if (!user) throw new Error("User not found");
@@ -76,6 +98,9 @@ export const loginUser = async (username, password) => {
   };
 };
 
+/**
+ * Baca data semua user
+ */
 const readDataUser = async () => {
   try {
     const users = await prisma.user.findMany();
@@ -86,6 +111,9 @@ const readDataUser = async () => {
   }
 };
 
+/**
+ * Refresh token dengan rotasi untuk keamanan
+ */
 export const refreshWithRotation = async (token) => {
   try {
     const payload = jwt.verify(token, REFRESH_TOKEN_SECRET);
@@ -120,6 +148,9 @@ export const refreshWithRotation = async (token) => {
   }
 };
 
+/**
+ * Revoke refresh token
+ */
 export const revokeRefresh = async (token) => {
   try {
     const payload = jwt.verify(token, REFRESH_TOKEN_SECRET);

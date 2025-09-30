@@ -1,21 +1,37 @@
-// controllers/photoController.js
 /**
- * PhotoController
- * - POST /api/photos: supports multipart upload with per-file metadata (fileMeta[]),
- *   optional comparisonGroupId or comparisonGroupTitle to create a group inline.
- * - GET /api/photos: supports query params category, comparisonGroupId, groupByComparison
- * - POST /api/comparison-groups and GET /api/comparison-groups: manage groups
+ * PhotoController - Mengelola upload dan data foto
+ * - POST /api/photos: mendukung multipart upload dengan metadata per-file
+ * - GET /api/photos: men        });
+
+        // Cek apakah group sudah completeung query params category, comparisonGroupId, groupByComparison
+ * - POST /api/comparison-groups dan GET /api/comparison-groups: kelola grup
  */
 import { PhotoService } from "../services/photoService.js";
 import { AreaService } from "../services/areaService.js";
 import { env } from "../config/env.js";
 import { prisma } from "../utils/prisma.js";
+import { changeLog } from "./changeLogController.js";
 
 export class PhotoController {
+  /**
+   * Upload foto dengan metadata per-file
+   */
   static async upload(req, res) {
     try {
-      // Expect body fields: areaId or areaName, optional comparisonGroupId or comparisonGroupTitle
-      // and per-file metadata in `fileMeta` (JSON array aligned with files[])
+      console.log("📥 Upload request received:");
+      console.log("📥 req.body:", req.body);
+      console.log("📥 req.files:", req.files?.length || 0, "files");
+      console.log(
+        "📥 req.files details:",
+        req.files?.map((f) => ({
+          filename: f.filename,
+          originalname: f.originalname,
+          size: f.size,
+        }))
+      );
+
+      // Expect body fields: areaId atau areaName, opsional comparisonGroupId atau comparisonGroupTitle
+      // dan metadata per-file dalam `fileMeta` (JSON array sejajar dengan files[])
       const { areaId, areaName, comparisonGroupId, comparisonGroupTitle } =
         req.body;
 
@@ -29,14 +45,14 @@ export class PhotoController {
         return res.status(400).json({ message: "area wajib di isi" });
       }
 
-      // If client asked to create a new group inline
-      // decide finalGroupId (prefer numeric comparisonGroupId)
+      // Jika client minta buat group baru inline
+      // tentukan finalGroupId (prioritaskan numeric comparisonGroupId)
       let finalGroupId = undefined;
       if (comparisonGroupId) {
         const n = Number(comparisonGroupId);
         if (!Number.isNaN(n)) finalGroupId = n;
       }
-      // create group inline when a non-empty title is provided
+      // buat group inline ketika title non-empty disediakan
       if (
         !finalGroupId &&
         comparisonGroupTitle &&
@@ -54,7 +70,7 @@ export class PhotoController {
         return res.status(400).json({ message: "tidak ada file" });
       }
 
-      // fileMeta: could be sent in multiple shapes. Normalize to array of objects.
+      // fileMeta: bisa dikirim dalam berbagai bentuk. Normalisasi ke array objek.
       let fileMeta = [];
       if (req.body.fileMeta) {
         try {
@@ -69,20 +85,20 @@ export class PhotoController {
                   return {};
                 }
               }
-              // already object
+              // sudah berupa objek
               return m;
             });
           } else if (typeof raw === "string") {
             const s = raw.trim();
-            // case: a JSON array string
+            // kasus: string JSON array
             if (s.startsWith("[")) {
               try {
                 const parsed = JSON.parse(s);
                 if (Array.isArray(parsed)) fileMeta = parsed;
                 else fileMeta = [parsed];
               } catch (err) {
-                // fallback: try to split into JSON pieces
-                const parts = s.split(/}\s*,\s*\{/); // try splitting between objects
+                // fallback: coba split jadi potongan JSON
+                const parts = s.split(/}\s*,\s*\{/); // coba split antar objek
                 fileMeta = parts.map((p, idx) => {
                   let piece = p;
                   if (idx > 0) piece = "{" + piece;
@@ -95,17 +111,17 @@ export class PhotoController {
                 });
               }
             } else {
-              // single JSON object string
+              // string objek JSON tunggal
               try {
                 fileMeta = [JSON.parse(s)];
               } catch (err) {
-                // unknown format → leave empty
+                // format tidak dikenal → biarkan kosong
                 console.warn("fileMeta parse fallback failed", err, s);
                 fileMeta = [];
               }
             }
           } else if (typeof raw === "object") {
-            // maybe provided as numeric-keyed object like {0: '{...}', 1: '{...}'}
+            // mungkin disediakan sebagai objek berkey numerik seperti {0: '{...}', 1: '{...}'}
             const keys = Object.keys(raw);
             const isNumericMap =
               keys.length && keys.every((k) => /^\d+$/.test(k));
@@ -140,9 +156,37 @@ export class PhotoController {
         (req.files || []).length
       );
 
-      // Ensure each meta has comparisonGroupId if finalGroupId present
+      // Pastikan setiap meta memiliki comparisonGroupId jika finalGroupId ada
       const filledMeta = [];
       const allowedCats = ["before", "action", "after"];
+
+      // Jika upload ke group yang sudah ada, cek status completion dan limit foto
+      if (finalGroupId) {
+        const existingPhotos = await prisma.photo.findMany({
+          where: { comparisonGroupId: finalGroupId },
+          select: { category: true },
+        });
+
+        const existingCategories = {
+          before: existingPhotos.filter((p) => p.category === "BEFORE").length,
+          action: existingPhotos.filter((p) => p.category === "ACTION").length,
+          after: existingPhotos.filter((p) => p.category === "AFTER").length,
+        };
+
+        // Check if group is already complete
+        const isComplete =
+          existingCategories.before > 0 &&
+          existingCategories.action > 0 &&
+          existingCategories.after > 0;
+
+        if (isComplete) {
+          return res.status(400).json({
+            message:
+              "Grup ini sudah selesai (memiliki foto Before, Action, dan After). Silakan buat grup baru.",
+          });
+        }
+      }
+
       for (let i = 0; i < files.length; i++) {
         const raw = fileMeta[i] || {};
         const m = { ...(raw || {}) };
@@ -153,7 +197,7 @@ export class PhotoController {
           ? providedCg
           : finalGroupId;
 
-        // validate category value if provided
+        // validasi nilai category jika disediakan
         if (m.category) {
           const c = String(m.category).toLowerCase();
           if (!allowedCats.includes(c)) {
@@ -162,9 +206,25 @@ export class PhotoController {
             });
           }
           m.category = c;
+
+          // Jika upload ke group yang sudah ada, cek apakah category ini sudah ada fotonya
+          if (finalGroupId) {
+            const existingPhotos = await prisma.photo.findMany({
+              where: {
+                comparisonGroupId: finalGroupId,
+                category: c.toUpperCase(),
+              },
+            });
+
+            if (existingPhotos.length > 0) {
+              return res.status(400).json({
+                message: `Grup ini sudah memiliki foto untuk kategori ${c}. Setiap grup hanya boleh 1 foto per kategori.`,
+              });
+            }
+          }
         }
 
-        // validate takenAt (optional) — if provided, ensure it's a valid date
+        // validasi takenAt (opsional) — jika disediakan, pastikan tanggal valid
         if (m.takenAt) {
           const d = new Date(m.takenAt);
           if (isNaN(d)) {
@@ -186,6 +246,17 @@ export class PhotoController {
         fileMeta,
       });
 
+      // Log upload foto ke changelog
+      await changeLog("PHOTO", "UPLOAD", {
+        count: created.count,
+        areaId: finalAreaId,
+        comparisonGroupId: finalGroupId,
+        files: files.map((f) => ({
+          filename: f.filename,
+          originalname: f.originalname,
+        })),
+      });
+
       return res.status(201).json({
         message: "Upload Berhasil",
         count: created.count,
@@ -193,10 +264,20 @@ export class PhotoController {
       });
     } catch (error) {
       console.error("Upload error:", error);
-      return res.status(400).json({ message: "Gagal upload" });
+      console.error("Upload error stack:", error.stack);
+      console.error("Upload error message:", error.message);
+      return res.status(500).json({
+        message: "Gagal upload",
+        error: error.message,
+        details:
+          process.env.NODE_ENV === "development" ? error.stack : undefined,
+      });
     }
   }
 
+  /**
+   * Ambil daftar foto dengan filter
+   */
   static async list(req, res) {
     const {
       areaId,
@@ -225,18 +306,28 @@ export class PhotoController {
     return res.json(data);
   }
 
+  /**
+   * Buat comparison group baru
+   */
   static async createGroup(req, res) {
-    const { title, areaId, areaName } = req.body;
+    const { title, areaId, areaName, description } = req.body;
     if (!title) return res.status(400).json({ message: "title required" });
     let finalAreaId = areaId ? Number(areaId) : undefined;
     if (!finalAreaId && areaName) {
       const a = await AreaService.upsertByName(String(areaName).trim());
       finalAreaId = a.id;
     }
-    const g = await PhotoService.createGroup({ title, areaId: finalAreaId });
+    const g = await PhotoService.createGroup({
+      title,
+      areaId: finalAreaId,
+      description: description || null,
+    });
     return res.status(201).json(g);
   }
 
+  /**
+   * Ambil daftar comparison groups
+   */
   static async listGroups(req, res) {
     const { areaId, page, pageSize } = req.query;
     const data = await PhotoService.listGroups({
@@ -247,6 +338,9 @@ export class PhotoController {
     return res.json(data);
   }
 
+  /**
+   * Ambil detail comparison group berdasarkan ID
+   */
   static async getGroup(req, res) {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id <= 0)
@@ -259,33 +353,118 @@ export class PhotoController {
     return res.json(g);
   }
 
+  /**
+   * Update comparison group
+   */
   static async updateGroup(req, res) {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id <= 0)
       return res.status(400).json({ message: "invalid id" });
-    const { title, description } = req.body;
+    const { title, description, keterangan } = req.body;
+
+    console.log("Update group request:", {
+      id,
+      title,
+      description,
+      keterangan,
+    });
+
     try {
       const updated = await PhotoService.updateGroup(id, {
         title,
         description,
+        keterangan,
       });
+      console.log("Group updated successfully:", updated);
       return res.json(updated);
     } catch (err) {
       console.error("Update group error", err);
-      return res.status(500).json({ message: "Failed update group" });
+      return res
+        .status(500)
+        .json({ message: "Failed update group", error: err.message });
     }
   }
 
+  /**
+   * Update foto (keterangan, dll)
+   */
+  static async update(req, res) {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id) || id <= 0)
+      return res.status(400).json({ message: "invalid id" });
+
+    try {
+      const { keterangan } = req.body;
+
+      // Cek apakah foto exists
+      const existingPhoto = await prisma.photo.findUnique({
+        where: { id },
+      });
+
+      if (!existingPhoto) {
+        return res.status(404).json({ message: "Foto tidak ditemukan" });
+      }
+
+      const updatedPhoto = await prisma.photo.update({
+        where: { id },
+        data: {
+          keterangan: keterangan || null,
+        },
+      });
+
+      // Log update foto ke changelog
+      await changeLog("PHOTO", "UPDATE", {
+        id: updatedPhoto.id,
+        filename: updatedPhoto.filename,
+        keterangan: updatedPhoto.keterangan,
+        areaId: updatedPhoto.areaId,
+        comparisonGroupId: updatedPhoto.comparisonGroupId,
+        category: updatedPhoto.category,
+      });
+
+      return res.json({
+        message: "Foto berhasil diupdate",
+        photo: updatedPhoto,
+      });
+    } catch (err) {
+      console.error("Update photo error", err);
+      return res.status(500).json({
+        message: "Gagal mengupdate foto",
+        error: err.message,
+      });
+    }
+  }
+
+  /**
+   * Hapus foto berdasarkan ID
+   */
   static async remove(req, res) {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id <= 0)
       return res.status(400).json({ message: "invalid id" });
     try {
+      // Ambil info foto sebelum dihapus untuk changelog
+      const photo = await prisma.photo.findUnique({ where: { id } });
+
       await PhotoService.remove(id);
+
+      const deleted = await PhotoService.delete(id);
+
+      // Log penghapusan foto ke changelog
+      if (photo) {
+        await changeLog("PHOTO", "DELETE", {
+          id: photo.id,
+          filename: photo.filename,
+          areaId: photo.areaId,
+          comparisonGroupId: photo.comparisonGroupId,
+          category: photo.category,
+        });
+      }
+
       return res.json({ message: "Foto dihapus" });
     } catch (err) {
       console.error("Remove photo error", err);
-      // if prisma throws because not found, return 404
+      // jika prisma throw karena not found, return 404
       return res.status(404).json({ message: "Foto tidak ditemukan" });
     }
   }

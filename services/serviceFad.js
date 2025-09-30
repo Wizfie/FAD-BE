@@ -11,7 +11,9 @@ dotenv.config();
 
 const prisma = new PrismaClient();
 
-// Fad: menggunakan Prisma MySQL
+/**
+ * Simpan data FAD menggunakan Prisma MySQL
+ */
 const saveDataFad = async (formData) => {
   try {
     const data = {
@@ -21,12 +23,22 @@ const saveDataFad = async (formData) => {
       plant: formData.plant || null,
       terimaFad: parseDate(formData.terimaFad),
       terimaBbm: parseDate(formData.terimaBbm),
-      vendor: formData.vendor || null,
+      vendorId: formData.vendorId || null,
       status: formData.status || null,
       deskripsi: formData.deskripsi || null,
       keterangan: formData.keterangan || null,
       bast: parseDate(formData.bast),
     };
+
+    // If vendorId is provided, get vendor name and set it
+    if (formData.vendorId) {
+      const vendor = await prisma.vendor.findUnique({
+        where: { id: formData.vendorId },
+      });
+      if (vendor) {
+        data.vendor = vendor.name;
+      }
+    }
 
     const created = await prisma.fad.create({ data });
     return created;
@@ -36,7 +48,9 @@ const saveDataFad = async (formData) => {
   }
 };
 
-// Membaca data dari database dengan support search + pagination + DATE search
+/**
+ * Baca data FAD dengan support search + pagination + DATE search
+ */
 const readDataFad = async (options = {}) => {
   try {
     const {
@@ -165,6 +179,7 @@ const readDataFad = async (options = {}) => {
       item: f.item ?? "",
       plant: f.plant ?? "",
       vendor: f.vendor ?? "",
+      vendorId: f.vendorId ?? null,
       status: f.status ?? "",
       deskripsi: f.deskripsi ?? "",
       keterangan: f.keterangan ?? "",
@@ -182,7 +197,9 @@ const readDataFad = async (options = {}) => {
   }
 };
 
-// Memperbarui data berdasarkan ID (DB)
+/**
+ * Update data FAD berdasarkan ID
+ */
 const updateDataFad = async (id, updatedData) => {
   try {
     const data = {};
@@ -193,7 +210,20 @@ const updateDataFad = async (id, updatedData) => {
       data.terimaFad = parseDate(updatedData.terimaFad);
     if (updatedData.terimaBbm !== undefined)
       data.terimaBbm = parseDate(updatedData.terimaBbm);
-    if (updatedData.vendor !== undefined) data.vendor = updatedData.vendor;
+    if (updatedData.vendorId !== undefined) {
+      data.vendorId = updatedData.vendorId;
+      // If vendorId is provided, get vendor name and set it
+      if (updatedData.vendorId) {
+        const vendor = await prisma.vendor.findUnique({
+          where: { id: updatedData.vendorId },
+        });
+        if (vendor) {
+          data.vendor = vendor.name;
+        }
+      } else {
+        data.vendor = null;
+      }
+    }
     if (updatedData.status !== undefined) data.status = updatedData.status;
     if (updatedData.deskripsi !== undefined)
       data.deskripsi = updatedData.deskripsi;
@@ -209,7 +239,9 @@ const updateDataFad = async (id, updatedData) => {
   }
 };
 
-// Menghapus data berdasarkan ID (DB)
+/**
+ * Hapus data FAD berdasarkan ID
+ */
 const deleteDataFad = async (id) => {
   try {
     const deleted = await prisma.fad.delete({ where: { id } });
@@ -220,7 +252,9 @@ const deleteDataFad = async (id) => {
   }
 };
 
-// Vendor operations using Prisma
+/**
+ * Simpan data vendor menggunakan Prisma
+ */
 const saveDataVendor = async (formData) => {
   try {
     const v = await prisma.vendor.create({
@@ -233,6 +267,9 @@ const saveDataVendor = async (formData) => {
   }
 };
 
+/**
+ * Baca semua data vendor
+ */
 const readDataVendor = async () => {
   try {
     const list = await prisma.vendor.findMany({ orderBy: { name: "asc" } });
@@ -243,6 +280,9 @@ const readDataVendor = async () => {
   }
 };
 
+/**
+ * Update data vendor berdasarkan ID
+ */
 const updateDataVendor = async (id, updatedData) => {
   try {
     const data = {};
@@ -256,6 +296,9 @@ const updateDataVendor = async (id, updatedData) => {
   }
 };
 
+/**
+ * Hapus data vendor berdasarkan ID
+ */
 const deleteDataVendor = async (id) => {
   try {
     const deleted = await prisma.vendor.delete({ where: { id } });

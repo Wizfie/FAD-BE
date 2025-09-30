@@ -6,6 +6,7 @@ const router = Router();
 
 router.post("/photos", upload.array("files", 20), PhotoController.upload);
 router.get("/photos", PhotoController.list);
+router.put("/photos/:id", PhotoController.update);
 router.delete("/photos/:id", PhotoController.remove);
 
 // Comparison groups

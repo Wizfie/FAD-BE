@@ -1,4 +1,5 @@
 import { changeLog } from "./changeLogController.js";
+import { securityLogger } from "../utils/securityLogger.js";
 import {
   refreshWithRotation,
   loginUser,
@@ -6,17 +7,17 @@ import {
   revokeRefresh,
 } from "../services/authService.js";
 
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const ONE_DAY_MS = 1 * 24 * 60 * 60 * 1000;
 const COOKIES_PATH = "/api";
 
 const cookiesOptSet = {
   httpOnly: true,
-  // Use 'None' so browser will include the cookie on cross-origin requests when allowed by CORS
+  // Gunakan 'None' agar browser sertakan cookie pada cross-origin request sesuai CORS
   sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
   path: COOKIES_PATH,
-  // secure must be true for SameSite=None; keep it true only in production (HTTPS)
+  // secure harus true untuk SameSite=None; aktif di production (HTTPS)
   secure: process.env.NODE_ENV === "production",
-  maxAge: SEVEN_DAYS_MS,
+  maxAge: ONE_DAY_MS,
 };
 const cookiesOptClear = {
   httpOnly: true,
@@ -25,31 +26,112 @@ const cookiesOptClear = {
   secure: process.env.NODE_ENV === "production",
 };
 
+/**
+ * Controller registrasi user baru
+ */
 export const registerController = async (req, res) => {
-  const { username, password, role } = req.body;
+  const { username, password, role, email, status } = req.body;
+
   try {
-    const user = await registerUser(username, password, role);
+    // Validation
+    if (!username || !username.trim()) {
+      return res.status(400).json({
+        error: "Username wajib diisi",
+      });
+    }
+
+    if (username.length < 3) {
+      return res.status(400).json({
+        error: "Username minimal 3 karakter",
+      });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        error: "Password minimal 6 karakter",
+      });
+    }
+
+    if (email && email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          error: "Format email tidak valid",
+        });
+      }
+    }
+
+    console.log("➕ Creating new user:", username);
+    const user = await registerUser(username, password, role, email, status);
     await changeLog("USER", "REGISTER", user);
+
+    console.log("✅ User registered successfully:", user.username);
     res.status(201).json({ message: "User registered successfully", user });
   } catch (error) {
-    console.error("Error registering user:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("❌ Error registering user:", error);
+
+    // Handle Prisma unique constraint errors
+    if (error.code === "P2002") {
+      const field = error.meta?.target?.[0] || "field";
+      if (field === "username") {
+        return res.status(400).json({
+          error:
+            "Username sudah digunakan. Silakan pilih username yang berbeda.",
+        });
+      } else if (field === "email") {
+        return res.status(400).json({
+          error: "Email sudah terdaftar. Silakan gunakan email yang berbeda.",
+        });
+      } else {
+        return res.status(400).json({
+          error: "Data sudah ada. Username atau email sudah digunakan.",
+        });
+      }
+    }
+
+    // Handle other Prisma errors
+    if (error.code && error.code.startsWith("P")) {
+      console.error("Prisma error code:", error.code, error.message);
+      return res.status(400).json({
+        error: "Terjadi kesalahan validasi data",
+      });
+    }
+
+    // Handle validation errors
+    if (
+      error.message &&
+      (error.message.includes("validation") ||
+        error.message.includes("required") ||
+        error.message.includes("invalid"))
+    ) {
+      return res.status(400).json({
+        error: error.message,
+      });
+    }
+
+    // Generic server error
+    res.status(500).json({
+      error: "Terjadi kesalahan di server. Silakan coba lagi.",
+    });
   }
 };
 
+/**
+ * Controller login user
+ */
 export const loginController = async (req, res) => {
   try {
     const { username, password } = req.body;
     const tokens = await loginUser(username, password);
 
-    // Record login event without logging tokens or session identifiers
+    // Catat event login tanpa logging token atau session identifier
     await changeLog("USER", "LOGIN", {
       userId: tokens.user.id,
       username: tokens.user.username,
       ip: req.ip,
     });
 
-    // Send refresh token as httpOnly cookie; access token returned in response body
+    // Kirim refresh token sebagai httpOnly cookie; access token di response body
     res.cookie("refreshToken", tokens.refreshToken, cookiesOptSet);
     res.json({
       message: "Login successful",
@@ -58,26 +140,33 @@ export const loginController = async (req, res) => {
     });
   } catch (error) {
     console.error("Login failed:", error);
+
+    // Log percobaan login gagal
+    securityLogger.logAuthFailure(req.body.username, req.ip, error.message);
+
     res.status(401).json({ error: "Invalid credentials" });
   }
 };
 
+/**
+ * Controller refresh token dengan rotasi
+ */
 export const refreshController = async (req, res) => {
   try {
-    // Basic Origin/Referer check to mitigate CSRF when using cookie-based refresh.
-    // If ALLOWED_ORIGINS is set, require that request Origin (or Referer host) is allowed.
+    // Cek Origin/Referer dasar untuk mitigasi CSRF saat gunakan cookie-based refresh
+    // Jika ALLOWED_ORIGINS diset, require Origin atau Referer host yang diizinkan
     const allowed = process.env.ALLOWED_ORIGINS
       ? process.env.ALLOWED_ORIGINS.split(",").map((s) => s.trim())
       : [];
     const origin = req.get("origin") || req.get("referer") || null;
     if (allowed.length > 0 && origin) {
-      // origin may include path when using referer; extract origin only
+      // origin mungkin include path saat pakai referer; ekstrak origin saja
       let originHost = origin;
       try {
         const u = new URL(origin);
         originHost = u.origin;
       } catch (e) {
-        // if referer contains path, attempt to extract origin
+        // jika referer berisi path, coba ekstrak origin
         const m = origin.match(/^(https?:\/\/[^\/]+)/i);
         if (m) originHost = m[1];
       }
@@ -104,6 +193,9 @@ export const refreshController = async (req, res) => {
   }
 };
 
+/**
+ * Controller logout user
+ */
 export const logoutController = async (req, res) => {
   try {
     const { refreshToken } = req.cookies;
@@ -112,10 +204,10 @@ export const logoutController = async (req, res) => {
       revoked = await revokeRefresh(refreshToken);
     }
 
-    // Always clear cookie on logout request to ensure client-side logout
+    // Selalu clear cookie pada logout request untuk pastikan client-side logout
     res.clearCookie("refreshToken", cookiesOptClear);
 
-    // Inform client about result; still return 200 for idempotent logout
+    // Informasi client tentang hasil; tetap return 200 untuk idempotent logout
     if (revoked) {
       res.json({ message: "Logged out successfully" });
     } else {
@@ -127,6 +219,9 @@ export const logoutController = async (req, res) => {
   }
 };
 
+/**
+ * Controller untuk mendapatkan data user yang sedang login
+ */
 export const meController = async (req, res) => {
   const { id, username, role, status } = req.user;
   res.json({ id, username, role, status });

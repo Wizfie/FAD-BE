@@ -3,6 +3,9 @@ import { fmtDateTimeDDMMYYYY_HHmmss } from "../utils/formatedDate.js";
 
 const prisma = new PrismaClient();
 
+/**
+ * Buat entry log perubahan
+ */
 export const changeLog = async (model, action, data) => {
   await prisma.changeLog.create({
     data: {
@@ -13,12 +16,24 @@ export const changeLog = async (model, action, data) => {
   });
 };
 
+/**
+ * Ambil daftar change logs dengan filter
+ */
 export const getChangeLogs = async (req, res) => {
   try {
-    const { model, last } = req.query;
+    const {
+      model,
+      last,
+      action,
+      page = 1,
+      pageSize = 10,
+      search,
+      from,
+      to,
+    } = req.query;
 
     if (model && String(last) === "true") {
-      // Return the most recent change log for the given model
+      // Return change log terbaru untuk model yang diberikan
       const latest = await prisma.changeLog.findFirst({
         where: { model: String(model) },
         orderBy: { createdAt: "desc" },
@@ -29,51 +44,174 @@ export const getChangeLogs = async (req, res) => {
         .json({ lastUpdate: latest ? { timestamp: latest.createdAt } : null });
     }
 
-    // Default: return full list (be mindful of pagination in future)
-    const changeLogs = await prisma.changeLog.findMany();
-    res.status(200).json(changeLogs);
+    // Build where clause with filters
+    const where = {};
+
+    if (model) {
+      where.model = String(model);
+    }
+
+    if (action) {
+      where.action = String(action);
+    }
+
+    if (search) {
+      where.OR = [
+        { model: { contains: search, mode: "insensitive" } },
+        { action: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    // Date range filter
+    if (from || to) {
+      where.createdAt = {};
+      if (from) {
+        const fromDate = new Date(from);
+        fromDate.setHours(0, 0, 0, 0);
+        where.createdAt.gte = fromDate;
+      }
+      if (to) {
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
+        where.createdAt.lte = toDate;
+      }
+    }
+
+    // Pagination
+    const pageNum = parseInt(page);
+    const limit = parseInt(pageSize);
+    const skip = (pageNum - 1) * limit;
+
+    // Get total count
+    const total = await prisma.changeLog.count({ where });
+
+    // Get logs with pagination
+    const changeLogs = await prisma.changeLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    });
+
+    res.status(200).json({
+      logs: changeLogs,
+      pagination: {
+        total,
+        page: pageNum,
+        pageSize: limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
     console.error("Get change logs failed:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// Export change logs as CSV attachment. Optional query: ?model=FAD
+// Get changelog statistics
+export const getChangeLogStats = async (req, res) => {
+  try {
+    // Total logs
+    const totalLogs = await prisma.changeLog.count();
+
+    // Logs by model
+    const logsByModel = await prisma.changeLog.groupBy({
+      by: ["model"],
+      _count: { model: true },
+      orderBy: { _count: { model: "desc" } },
+    });
+
+    // Logs by action
+    const logsByAction = await prisma.changeLog.groupBy({
+      by: ["action"],
+      _count: { action: true },
+      orderBy: { _count: { action: "desc" } },
+    });
+
+    // Recent activity (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const recentActivity = await prisma.changeLog.count({
+      where: {
+        createdAt: { gte: sevenDaysAgo },
+      },
+    });
+
+    // Today's activity
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const todayActivity = await prisma.changeLog.count({
+      where: {
+        createdAt: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+      },
+    });
+
+    res.status(200).json({
+      totalLogs,
+      recentActivity,
+      todayActivity,
+      logsByModel: logsByModel.map((item) => ({
+        model: item.model,
+        count: item._count.model,
+      })),
+      logsByAction: logsByAction.map((item) => ({
+        action: item.action,
+        count: item._count.action,
+      })),
+    });
+  } catch (error) {
+    console.error("Get changelog stats failed:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Export change logs as CSV attachment with full filtering support
 export const exportChangeLogs = async (req, res) => {
   try {
-    const { model, from, to, all } = req.query;
+    const { model, action, search, from, to, all } = req.query;
 
-    // Build where clause optionally filtering by model and createdAt range
+    // Build where clause with all available filters (same as getChangeLogs)
     const where = {};
-    if (model) where.model = String(model);
 
-    // If not requesting "all", and from/to provided, filter createdAt
-    if (!all) {
-      let start = null;
-      let end = null;
+    if (model) {
+      where.model = String(model);
+    }
+
+    if (action) {
+      where.action = String(action);
+    }
+
+    if (search) {
+      where.OR = [
+        { model: { contains: search, mode: "insensitive" } },
+        { action: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    // Date range filter
+    if (!all && (from || to)) {
+      where.createdAt = {};
       if (from) {
-        const d = new Date(from);
-        if (!isNaN(d)) {
-          start = new Date(d);
-          start.setHours(0, 0, 0, 0);
-        }
+        const fromDate = new Date(from);
+        fromDate.setHours(0, 0, 0, 0);
+        where.createdAt.gte = fromDate;
       }
       if (to) {
-        const d = new Date(to);
-        if (!isNaN(d)) {
-          end = new Date(d);
-          end.setHours(23, 59, 59, 999);
-        }
-      }
-      if (start || end) {
-        where.createdAt = {};
-        if (start) where.createdAt.gte = start;
-        if (end) where.createdAt.lte = end;
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
+        where.createdAt.lte = toDate;
       }
     }
 
     const logs = await prisma.changeLog.findMany({
-      where: Object.keys(where).length ? where : undefined,
+      where,
       orderBy: { createdAt: "desc" },
     });
 
@@ -96,7 +234,15 @@ export const exportChangeLogs = async (req, res) => {
     }
 
     const csv = rows.join("\n");
-    const filename = `change-log-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    // Generate descriptive filename based on filters
+    let filename = "changelog";
+    if (model) filename += `-${model.toLowerCase()}`;
+    if (action) filename += `-${action.toLowerCase()}`;
+    if (from && to) filename += `-${from}-to-${to}`;
+    else if (from) filename += `-from-${from}`;
+    else if (to) filename += `-until-${to}`;
+    filename += `-${new Date().toISOString().slice(0, 10)}.csv`;
 
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
