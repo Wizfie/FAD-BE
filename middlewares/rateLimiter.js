@@ -1,4 +1,5 @@
 import rateLimit from "express-rate-limit";
+import { logger } from "../utils/unifiedLogger.js";
 
 // General API rate limiting
 export const generalLimiter = rateLimit({
@@ -7,6 +8,18 @@ export const generalLimiter = rateLimit({
   message: "Too many requests from this IP, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
+  onLimitReached: async (req, res, options) => {
+    await logger.suspiciousActivity(
+      "RATE_LIMIT_EXCEEDED",
+      {
+        endpoint: req.path,
+        method: req.method,
+        userAgent: req.get("user-agent"),
+        severity: "medium",
+      },
+      req
+    );
+  },
 });
 
 // Strict rate limiting for auth endpoints
@@ -17,6 +30,23 @@ export const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful requests
+  onLimitReached: (req, res, options) => {
+    securityLogger.logSuspiciousActivity(
+      "AUTH_RATE_LIMIT_EXCEEDED",
+      {
+        endpoint: req.path,
+        method: req.method,
+        userAgent: req.get("user-agent"),
+        severity: "high",
+      },
+      req
+    );
+    logger.warn("Auth rate limit exceeded", {
+      ip: req.ip,
+      endpoint: req.path,
+      userAgent: req.get("user-agent"),
+    });
+  },
 });
 
 // File upload rate limiting
@@ -26,4 +56,23 @@ export const uploadLimiter = rateLimit({
   message: "Too many upload attempts, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
+  onLimitReached: (req, res, options) => {
+    securityLogger.logSuspiciousActivity(
+      "UPLOAD_RATE_LIMIT_EXCEEDED",
+      {
+        endpoint: req.path,
+        method: req.method,
+        userAgent: req.get("user-agent"),
+        userId: req.user?.id,
+        severity: "medium",
+      },
+      req
+    );
+    logger.warn("Upload rate limit exceeded", {
+      ip: req.ip,
+      endpoint: req.path,
+      userAgent: req.get("user-agent"),
+      userId: req.user?.id,
+    });
+  },
 });

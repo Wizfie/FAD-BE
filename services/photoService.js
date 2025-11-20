@@ -8,6 +8,7 @@
 import { prisma } from "../utils/prisma.js";
 import { getRange } from "../utils/dateRange.js";
 import { env } from "../config/env.js";
+import { logger } from "../utils/logger.js";
 import path from "path";
 import fs from "fs";
 import sharp from "sharp";
@@ -219,7 +220,7 @@ export class PhotoService {
     if (data.keterangan !== undefined) payload.keterangan = data.keterangan;
     if (data.summary !== undefined) payload.summary = data.summary;
 
-    console.log("PhotoService.updateGroup payload:", payload);
+    logger.debug("PhotoService.updateGroup payload", { payload });
 
     return prisma.comparisonGroup.update({
       where: { id: Number(id) },

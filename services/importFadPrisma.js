@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { parseDate } from "../utils/formatedDate.js";
+import { logger } from "../utils/logger.js";
 
 dotenv.config();
 const prisma = new PrismaClient();
@@ -24,13 +25,14 @@ async function main() {
   try {
     const vraw = await fs.readFile(vendorPath, "utf8");
     vendorFile = JSON.parse(vraw);
-    console.log(
-      `Loaded ${vendorFile.length} vendor records from ${vendorPath}`
-    );
+    logger.info("Loaded vendor records", {
+      count: vendorFile.length,
+      path: vendorPath,
+    });
   } catch (e) {
     // file vendor opsional
   }
-  console.log(`Loaded ${arr.length} records from ${dataPath}`);
+  logger.info("Loaded FAD records", { count: arr.length, path: dataPath });
 
   // We'll upsert vendors and create fads with vendor relation.
   const vendorCache = new Map();
@@ -97,13 +99,13 @@ async function main() {
 
       inserted++;
       if (inserted % 100 === 0)
-        console.log(`Inserted/updated ${inserted} records`);
+        logger.info("Records processed", { insertedCount: inserted });
     } catch (e) {
       console.error("Error importing record", r.id || r.noFad, e.message ?? e);
     }
   }
 
-  console.log(`Import finished, processed ${inserted} records`);
+  logger.info("Import finished", { totalProcessed: inserted });
 }
 
 main()

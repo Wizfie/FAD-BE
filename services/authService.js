@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { prisma } from "../utils/prisma.js";
+import { logger } from "../utils/logger.js";
 
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET;
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET;
@@ -85,7 +86,10 @@ export const loginUser = async (username, password) => {
   });
 
   if (process.env.NODE_ENV !== "production") {
-    console.log("new login session id =", session.id);
+    logger.debug("New login session created", {
+      sessionId: session.id,
+      userId: user.id,
+    });
   }
 
   const accessToken = signAccessToken(user);
@@ -104,7 +108,7 @@ export const loginUser = async (username, password) => {
 const readDataUser = async () => {
   try {
     const users = await prisma.user.findMany();
-    console.log("users:", users);
+    logger.debug("Users list", { usersCount: users.length });
     return users;
   } catch (error) {
     throw new Error("Gagal membaca data user");
@@ -165,14 +169,13 @@ export const revokeRefresh = async (token) => {
       data: { revoked: true },
     });
     if (process.env.NODE_ENV !== "production")
-      console.log("Refresh token revoked, session id =", jti);
+      logger.debug("Refresh token revoked", { sessionId: jti });
     return true;
   } catch (error) {
     // Log error for observability. Caller will receive boolean result.
-    console.log(
-      "Failed to revoke refresh token:",
-      error && error.message ? error.message : error
-    );
+    logger.error("Failed to revoke refresh token", {
+      error: error && error.message ? error.message : error,
+    });
     return false;
   }
 };

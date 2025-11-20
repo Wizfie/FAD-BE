@@ -129,3 +129,20 @@ model Photo {
   @@index([areaId , createdAt])
   @@index([createdAt])
 }
+
+model ProgramInfoImage {
+  id  Int @id @default(autoincrement())
+  title String?
+  filename String
+  thumbFilename String?
+  thumbUrl String?
+  originalName String
+  mime String
+  size Int
+  url String
+  displayOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([displayOrder])
+}

@@ -1,5 +1,4 @@
-import { changeLog } from "./changeLogController.js";
-import { securityLogger } from "../utils/securityLogger.js";
+import { logger } from "../utils/unifiedLogger.js";
 import {
   refreshWithRotation,
   loginUser,
@@ -61,11 +60,11 @@ export const registerController = async (req, res) => {
       }
     }
 
-    console.log("➕ Creating new user:", username);
+    await logger.info("➕ Creating new user", { username });
     const user = await registerUser(username, password, role, email, status);
-    await changeLog("USER", "REGISTER", user);
 
-    console.log("✅ User registered successfully:", user.username);
+    // Unified logging - combines changeLog + operation logging
+    await logger.register(user, req.ip);
     res.status(201).json({ message: "User registered successfully", user });
   } catch (error) {
     console.error("❌ Error registering user:", error);
@@ -124,12 +123,8 @@ export const loginController = async (req, res) => {
     const { username, password } = req.body;
     const tokens = await loginUser(username, password);
 
-    // Catat event login tanpa logging token atau session identifier
-    await changeLog("USER", "LOGIN", {
-      userId: tokens.user.id,
-      username: tokens.user.username,
-      ip: req.ip,
-    });
+    // Unified logging - combines changeLog + audit logging
+    await logger.login(tokens.user, req.ip);
 
     // Kirim refresh token sebagai httpOnly cookie; access token di response body
     res.cookie("refreshToken", tokens.refreshToken, cookiesOptSet);
@@ -139,10 +134,10 @@ export const loginController = async (req, res) => {
       accessToken: tokens.accessToken,
     });
   } catch (error) {
-    console.error("Login failed:", error);
+    await logger.error("Login failed", { error: error.message });
 
-    // Log percobaan login gagal
-    securityLogger.logAuthFailure(req.body.username, req.ip, error.message);
+    // Unified security logging
+    await logger.authFailure(req.body.username, req.ip, error.message);
 
     res.status(401).json({ error: "Invalid credentials" });
   }

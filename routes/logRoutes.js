@@ -14,11 +14,17 @@ router.get("/files", LogController.getLogFiles);
 // GET /api/logs/security - Get security logs with filtering
 router.get("/security", LogController.getSecurityLogs);
 
+// GET /api/logs/audit - Get audit logs with filtering
+router.get("/audit", LogController.getAuditLogs);
+
 // GET /api/logs/stats - Get log statistics
 router.get("/stats", LogController.getLogStats);
 
 // GET /api/logs/security/export - Export security logs as CSV
 router.get("/security/export", LogController.exportSecurityLogs);
+
+// GET /api/logs/audit/export - Export audit logs as CSV
+router.get("/audit/export", LogController.exportAuditLogs);
 
 // DELETE /api/logs/cleanup - Clear old logs
 router.delete("/cleanup", LogController.clearOldLogs);

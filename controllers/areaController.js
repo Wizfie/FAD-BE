@@ -1,4 +1,6 @@
 import { AreaService } from "../services/areaService.js";
+import { changeLog } from "./changeLogController.js";
+import { logger } from "../utils/logger.js";
 
 export class AreaController {
   /**
@@ -22,12 +24,25 @@ export class AreaController {
 
       const area = await AreaService.upsertByName(name.trim());
 
+      // Log area creation to changelog
+      await changeLog("AREA", "CREATE", {
+        id: area.id,
+        name: area.name,
+        userId: req.user?.id,
+        username: req.user?.username,
+      });
+
+      logger.operation("CREATE", "AREA", { id: area.id, name: area.name });
+
       return res.status(201).json({
         message: "Area berhasil dibuat",
         data: area,
       });
     } catch (error) {
-      console.error("Create area error:", error);
+      logger.error("Create area error", {
+        error: error.message,
+        userId: req.user?.id,
+      });
       return res.status(500).json({ message: "Gagal membuat area" });
     }
   }
@@ -48,12 +63,26 @@ export class AreaController {
         name: name.trim(),
       });
 
+      // Log area update to changelog
+      await changeLog("AREA", "UPDATE", {
+        id: area.id,
+        name: area.name,
+        userId: req.user?.id,
+        username: req.user?.username,
+      });
+
+      logger.operation("UPDATE", "AREA", { id: area.id, name: area.name });
+
       return res.json({
         message: "Area berhasil diupdate",
         data: area,
       });
     } catch (error) {
-      console.error("Update area error:", error);
+      logger.error("Update area error", {
+        error: error.message,
+        areaId: id,
+        userId: req.user?.id,
+      });
       if (error.code === "P2025") {
         return res.status(404).json({ message: "Area tidak ditemukan" });
       }
@@ -73,13 +102,26 @@ export class AreaController {
         });
       }
 
-      await AreaService.delete(Number(id));
+      const deletedArea = await AreaService.delete(Number(id));
+
+      // Log area deletion to changelog
+      await changeLog("AREA", "DELETE", {
+        id: Number(id),
+        userId: req.user?.id,
+        username: req.user?.username,
+      });
+
+      logger.operation("DELETE", "AREA", { id: Number(id) });
 
       return res.json({
         message: "Area berhasil dihapus",
       });
     } catch (error) {
-      console.error("Delete area error:", error);
+      logger.error("Delete area error", {
+        error: error.message,
+        areaId: id,
+        userId: req.user?.id,
+      });
       if (error.code === "P2025") {
         return res.status(404).json({ message: "Area tidak ditemukan" });
       }

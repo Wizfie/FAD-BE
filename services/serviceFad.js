@@ -6,6 +6,7 @@ import {
   tryParseDate,
   tryParseMonth,
 } from "../utils/formatedDate.js";
+import { logger } from "../utils/logger.js";
 
 dotenv.config();
 
@@ -62,7 +63,7 @@ const readDataFad = async (options = {}) => {
     } = options;
 
     const q = String(search || "").trim();
-    if (q) console.log("[readDataFad] search:", q);
+    if (q) logger.debug("[readDataFad] search", { query: q });
 
     const allowedFields = new Set([
       "noFad",
@@ -178,6 +179,9 @@ const readDataFad = async (options = {}) => {
       noFad: f.noFad ?? "",
       item: f.item ?? "",
       plant: f.plant ?? "",
+      terimaFad: f.terimaFad ?? null,
+      terimaBbm: f.terimaBbm ?? null,
+      bast: f.bast ?? null,
       vendor: f.vendor ?? "",
       vendorId: f.vendorId ?? null,
       status: f.status ?? "",
@@ -202,40 +206,319 @@ const readDataFad = async (options = {}) => {
  */
 const updateDataFad = async (id, updatedData) => {
   try {
+    console.log("🔧 [updateDataFad] Starting update for ID:", id);
+    console.log(
+      "🔧 [updateDataFad] Received data:",
+      JSON.stringify(updatedData, null, 2)
+    );
+
+    // First, get the existing record with full vendor data
+    const existingRecord = await prisma.fad.findUnique({
+      where: { id },
+      include: { vendorRel: true },
+    });
+
+    if (!existingRecord) {
+      console.error("❌ [updateDataFad] Record not found for ID:", id);
+      throw new Error(`Data FAD dengan ID ${id} tidak ditemukan`);
+    }
+
+    console.log(
+      "✅ [updateDataFad] Found existing record:",
+      existingRecord.noFad
+    );
+
+    // Create "before" snapshot
+    const beforeData = {
+      id: existingRecord.id,
+      noFad: existingRecord.noFad,
+      item: existingRecord.item,
+      plant: existingRecord.plant,
+      terimaFad: existingRecord.terimaFad,
+      terimaBbm: existingRecord.terimaBbm,
+      bast: existingRecord.bast,
+      vendorId: existingRecord.vendorId,
+      vendor: existingRecord.vendor,
+      status: existingRecord.status,
+      deskripsi: existingRecord.deskripsi,
+      keterangan: existingRecord.keterangan,
+      vendorRel: existingRecord.vendorRel,
+    };
+
     const data = {};
-    if (updatedData.noFad !== undefined) data.noFad = updatedData.noFad;
-    if (updatedData.item !== undefined) data.item = updatedData.item;
-    if (updatedData.plant !== undefined) data.plant = updatedData.plant;
-    if (updatedData.terimaFad !== undefined)
-      data.terimaFad = parseDate(updatedData.terimaFad);
-    if (updatedData.terimaBbm !== undefined)
-      data.terimaBbm = parseDate(updatedData.terimaBbm);
-    if (updatedData.vendorId !== undefined) {
-      data.vendorId = updatedData.vendorId;
-      // If vendorId is provided, get vendor name and set it
-      if (updatedData.vendorId) {
-        const vendor = await prisma.vendor.findUnique({
-          where: { id: updatedData.vendorId },
-        });
-        if (vendor) {
-          data.vendor = vendor.name;
-        }
+    const changes = {}; // Track field changes for changelog
+
+    // Handle string fields with change tracking
+    if (
+      updatedData.noFad !== undefined &&
+      updatedData.noFad !== existingRecord.noFad
+    ) {
+      const newValue = updatedData.noFad || null;
+      data.noFad = newValue;
+      changes.noFad = { from: existingRecord.noFad, to: newValue };
+    }
+    if (
+      updatedData.item !== undefined &&
+      updatedData.item !== existingRecord.item
+    ) {
+      const newValue = updatedData.item || null;
+      data.item = newValue;
+      changes.item = { from: existingRecord.item, to: newValue };
+    }
+    if (
+      updatedData.plant !== undefined &&
+      updatedData.plant !== existingRecord.plant
+    ) {
+      const newValue = updatedData.plant || null;
+      data.plant = newValue;
+      changes.plant = { from: existingRecord.plant, to: newValue };
+    }
+
+    // Handle date parsing with change tracking
+    if (updatedData.terimaFad !== undefined) {
+      console.log(
+        "📅 [updateDataFad] Parsing terimaFad:",
+        updatedData.terimaFad
+      );
+      let newValue = null;
+      if (!updatedData.terimaFad || updatedData.terimaFad === "") {
+        newValue = null;
+        console.log("📅 [updateDataFad] Set terimaFad to null (empty input)");
       } else {
-        data.vendor = null;
+        newValue = parseDate(updatedData.terimaFad);
+        console.log("📅 [updateDataFad] Parsed terimaFad result:", newValue);
+      }
+
+      // Check if date actually changed (compare dates properly)
+      const existingDate = existingRecord.terimaFad
+        ? new Date(existingRecord.terimaFad).getTime()
+        : null;
+      const newDate = newValue ? new Date(newValue).getTime() : null;
+
+      if (existingDate !== newDate) {
+        data.terimaFad = newValue;
+        changes.terimaFad = {
+          from: existingRecord.terimaFad
+            ? new Date(existingRecord.terimaFad).toISOString().split("T")[0]
+            : null,
+          to: newValue ? new Date(newValue).toISOString().split("T")[0] : null,
+        };
       }
     }
-    if (updatedData.status !== undefined) data.status = updatedData.status;
-    if (updatedData.deskripsi !== undefined)
-      data.deskripsi = updatedData.deskripsi;
-    if (updatedData.keterangan !== undefined)
-      data.keterangan = updatedData.keterangan;
-    if (updatedData.bast !== undefined) data.bast = parseDate(updatedData.bast);
 
-    const updated = await prisma.fad.update({ where: { id }, data });
-    return { message: "Data berhasil diperbarui", data: updated };
+    if (updatedData.terimaBbm !== undefined) {
+      console.log(
+        "📅 [updateDataFad] Parsing terimaBbm:",
+        updatedData.terimaBbm
+      );
+      let newValue = null;
+      if (!updatedData.terimaBbm || updatedData.terimaBbm === "") {
+        newValue = null;
+        console.log("📅 [updateDataFad] Set terimaBbm to null (empty input)");
+      } else {
+        newValue = parseDate(updatedData.terimaBbm);
+        console.log("📅 [updateDataFad] Parsed terimaBbm result:", newValue);
+      }
+
+      const existingDate = existingRecord.terimaBbm
+        ? new Date(existingRecord.terimaBbm).getTime()
+        : null;
+      const newDate = newValue ? new Date(newValue).getTime() : null;
+
+      if (existingDate !== newDate) {
+        data.terimaBbm = newValue;
+        changes.terimaBbm = {
+          from: existingRecord.terimaBbm
+            ? new Date(existingRecord.terimaBbm).toISOString().split("T")[0]
+            : null,
+          to: newValue ? new Date(newValue).toISOString().split("T")[0] : null,
+        };
+      }
+    }
+
+    if (updatedData.bast !== undefined) {
+      console.log("📅 [updateDataFad] Parsing bast:", updatedData.bast);
+      let newValue = null;
+      if (!updatedData.bast || updatedData.bast === "") {
+        newValue = null;
+        console.log("📅 [updateDataFad] Set bast to null (empty input)");
+      } else {
+        newValue = parseDate(updatedData.bast);
+        console.log("📅 [updateDataFad] Parsed bast result:", newValue);
+      }
+
+      const existingDate = existingRecord.bast
+        ? new Date(existingRecord.bast).getTime()
+        : null;
+      const newDate = newValue ? new Date(newValue).getTime() : null;
+
+      if (existingDate !== newDate) {
+        data.bast = newValue;
+        changes.bast = {
+          from: existingRecord.bast
+            ? new Date(existingRecord.bast).toISOString().split("T")[0]
+            : null,
+          to: newValue ? new Date(newValue).toISOString().split("T")[0] : null,
+        };
+      }
+    }
+
+    // Handle vendor with change tracking
+    if (updatedData.vendorId !== undefined) {
+      console.log(
+        "🏪 [updateDataFad] Processing vendorId:",
+        updatedData.vendorId
+      );
+
+      let newVendorId = null;
+      let newVendorName = null;
+
+      // Handle empty string, null, or undefined vendorId
+      if (
+        !updatedData.vendorId ||
+        updatedData.vendorId === "" ||
+        updatedData.vendorId === "null"
+      ) {
+        newVendorId = null;
+        newVendorName = null;
+        console.log("🏪 [updateDataFad] Clearing vendor (set to null)");
+      } else {
+        newVendorId = updatedData.vendorId;
+        try {
+          const vendor = await prisma.vendor.findUnique({
+            where: { id: updatedData.vendorId },
+          });
+          if (vendor) {
+            newVendorName = vendor.name;
+            console.log("🏪 [updateDataFad] Found vendor:", vendor.name);
+          } else {
+            console.warn(
+              "⚠️ [updateDataFad] Vendor not found for ID:",
+              updatedData.vendorId
+            );
+            newVendorName = null;
+          }
+        } catch (vendorError) {
+          console.error(
+            "❌ [updateDataFad] Error finding vendor:",
+            vendorError
+          );
+          newVendorName = null;
+        }
+      }
+
+      // Check if vendor changed
+      if (newVendorId !== existingRecord.vendorId) {
+        data.vendorId = newVendorId;
+        data.vendor = newVendorName;
+        changes.vendor = {
+          from: existingRecord.vendor || null,
+          to: newVendorName || null,
+        };
+      }
+    }
+
+    // Handle other string fields with change tracking
+    if (
+      updatedData.status !== undefined &&
+      updatedData.status !== existingRecord.status
+    ) {
+      const newValue = updatedData.status || null;
+      data.status = newValue;
+      changes.status = { from: existingRecord.status, to: newValue };
+    }
+    if (
+      updatedData.deskripsi !== undefined &&
+      updatedData.deskripsi !== existingRecord.deskripsi
+    ) {
+      const newValue = updatedData.deskripsi || null;
+      data.deskripsi = newValue;
+      changes.deskripsi = { from: existingRecord.deskripsi, to: newValue };
+      console.log("📝 [updateDataFad] Setting deskripsi:", newValue);
+    }
+    if (
+      updatedData.keterangan !== undefined &&
+      updatedData.keterangan !== existingRecord.keterangan
+    ) {
+      const newValue = updatedData.keterangan || null;
+      data.keterangan = newValue;
+      changes.keterangan = { from: existingRecord.keterangan, to: newValue };
+      console.log("📝 [updateDataFad] Setting keterangan:", newValue);
+    }
+
+    // Filter out meaningless changes (null to null, empty to empty, etc.)
+    const meaningfulChanges = {};
+    Object.entries(changes).forEach(([field, change]) => {
+      const { from, to } = change;
+      // Skip if both values are null/undefined/empty
+      const fromNormalized =
+        from === null || from === undefined || from === "" ? null : from;
+      const toNormalized =
+        to === null || to === undefined || to === "" ? null : to;
+
+      if (fromNormalized !== toNormalized) {
+        meaningfulChanges[field] = change;
+      }
+    });
+
+    console.log(
+      "🔧 [updateDataFad] Final data to update:",
+      JSON.stringify(data, null, 2)
+    );
+    console.log(
+      "📊 [updateDataFad] Meaningful changes:",
+      JSON.stringify(meaningfulChanges, null, 2)
+    );
+
+    // Additional validation before update
+    if (Object.keys(data).length === 0) {
+      console.warn("⚠️ [updateDataFad] No fields to update, skipping");
+      return { message: "Tidak ada perubahan data", data: existingRecord };
+    }
+
+    const updated = await prisma.fad.update({
+      where: { id },
+      data,
+      include: {
+        vendorRel: true, // Include vendor relation for complete data
+      },
+    });
+
+    console.log("✅ [updateDataFad] Successfully updated record");
+    console.log(
+      "📊 [updateDataFad] Changes detected:",
+      Object.keys(changes).length
+    );
+
+    // Return enhanced data for changelog
+    return {
+      message: "Data berhasil diperbarui",
+      data: updated,
+      beforeData,
+      afterData: updated,
+      changes: meaningfulChanges,
+      hasChanges: Object.keys(meaningfulChanges).length > 0,
+    };
   } catch (e) {
-    console.error("Gagal memperbarui data di DB", e);
-    throw new Error("Gagal memperbarui data");
+    console.error("❌ [updateDataFad] Error details:", e);
+    console.error("❌ [updateDataFad] Stack trace:", e.stack);
+
+    // Provide more specific error messages
+    if (e.code === "P2002") {
+      throw new Error(
+        `Duplikasi data: ${e.meta?.target || "field tidak diketahui"}`
+      );
+    } else if (e.code === "P2025") {
+      throw new Error(`Data tidak ditemukan dengan ID: ${id}`);
+    } else if (e.code === "P2003") {
+      throw new Error("Referensi data tidak valid (foreign key constraint)");
+    } else if (e.message && e.message.includes("Invalid date")) {
+      throw new Error("Format tanggal tidak valid");
+    } else {
+      throw new Error(
+        `Gagal memperbarui data: ${e.message || "Unknown error"}`
+      );
+    }
   }
 };
 
@@ -244,11 +527,34 @@ const updateDataFad = async (id, updatedData) => {
  */
 const deleteDataFad = async (id) => {
   try {
+    // Ambil data lengkap sebelum dihapus untuk changelog
+    const beforeData = await prisma.fad.findUnique({
+      where: { id },
+      include: {
+        vendorRel: true,
+      },
+    });
+
+    if (!beforeData) {
+      throw new Error("Data FAD tidak ditemukan");
+    }
+
     const deleted = await prisma.fad.delete({ where: { id } });
-    return { message: "Data berhasil dihapus", data: deleted };
+
+    return {
+      message: "Data berhasil dihapus",
+      data: deleted,
+      beforeData: {
+        ...beforeData,
+        deletedAt: new Date().toISOString(),
+      },
+    };
   } catch (e) {
     console.error("Gagal menghapus data di DB", e);
-    throw new Error("Gagal menghapus data");
+    if (e.code === "P2025") {
+      throw new Error("Data FAD tidak ditemukan");
+    }
+    throw new Error(`Gagal menghapus data: ${e.message || "Unknown error"}`);
   }
 };
 
@@ -313,7 +619,7 @@ const deleteDataVendor = async (id) => {
 const shutdownPrisma = async () => {
   try {
     await prisma.$disconnect();
-    console.log("Prisma client disconnected");
+    logger.info("Prisma client disconnected");
   } catch (e) {
     console.error("Error disconnecting prisma", e);
   }
