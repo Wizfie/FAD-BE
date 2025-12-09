@@ -1,4 +1,4 @@
-import { Logger } from "../utils/logger.js";
+import { logger } from "../utils/unifiedLogger.js";
 import {
   refreshWithRotation,
   loginUser,
@@ -60,16 +60,11 @@ export const registerController = async (req, res) => {
       }
     }
 
-    Logger.info("➕ Creating new user", { username });
+    await logger.info("➕ Creating new user", { username });
     const user = await registerUser(username, password, role, email, status);
 
-    // Audit log for user registration
-    await Logger.auditAuth(
-      "REGISTER",
-      username,
-      { role, email, ip: req.ip },
-      user.id
-    );
+    // Unified logging - combines changeLog + operation logging
+    await logger.register(user, req.ip);
     res.status(201).json({ message: "User registered successfully", user });
   } catch (error) {
     console.error("❌ Error registering user:", error);
@@ -128,13 +123,8 @@ export const loginController = async (req, res) => {
     const { username, password } = req.body;
     const tokens = await loginUser(username, password);
 
-    // Audit log for successful login
-    await Logger.auditAuth(
-      "LOGIN_SUCCESS",
-      username,
-      { ip: req.ip },
-      tokens.user.id
-    );
+    // Unified logging - combines changeLog + audit logging
+    await logger.login(tokens.user, req.ip);
 
     // Kirim refresh token sebagai httpOnly cookie; access token di response body
     res.cookie("refreshToken", tokens.refreshToken, cookiesOptSet);
@@ -144,13 +134,10 @@ export const loginController = async (req, res) => {
       accessToken: tokens.accessToken,
     });
   } catch (error) {
-    Logger.error("Login failed", { error: error.message });
+    await logger.error("Login failed", { error: error.message });
 
-    // Audit log for failed login
-    await Logger.auditAuth("LOGIN_FAILED", req.body.username, {
-      ip: req.ip,
-      reason: error.message,
-    });
+    // Unified security logging
+    await logger.authFailure(req.body.username, req.ip, error.message);
 
     res.status(401).json({ error: "Invalid credentials" });
   }

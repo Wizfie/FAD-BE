@@ -13,7 +13,7 @@ import {
   fmtDateToDDMMYYYY,
   fmtDateTimeDDMMYYYY_HHmmss,
 } from "../utils/formatedDate.js";
-import { Logger } from "../utils/logger.js";
+import { logger } from "../utils/unifiedLogger.js";
 dotenv.config();
 
 /**
@@ -23,8 +23,8 @@ const saveDataHandler = async (req, res) => {
   try {
     const formData = req.body;
 
-    Logger.request(req, "📨 Received form data for FAD creation");
-    Logger.debug("Form data details", { formData });
+    logger.request(req, "📨 Received form data for FAD creation");
+    logger.debug("Form data details", { formData });
 
     // Server-side validation and formatting
     let noFad = String(formData.noFad || "").trim();
@@ -42,7 +42,7 @@ const saveDataHandler = async (req, res) => {
     noFad = noFad.toUpperCase();
     formData.noFad = noFad;
 
-    Logger.debug("📝 Backend auto-formatted No FAD", { noFad });
+    logger.debug("📝 Backend auto-formatted No FAD", { noFad });
 
     // Optional: Validate No FAD format (flexible pattern)
     // Allows letters, numbers, slashes, hyphens, dots
@@ -58,32 +58,25 @@ const saveDataHandler = async (req, res) => {
     }
 
     if (!item) {
-      Logger.validation("item", null, "Item is required");
+      logger.validation("item", null, "Item is required");
       return res.status(400).json({
         error: "Item wajib diisi",
         field: "item",
       });
     }
 
-    Logger.debug("✅ Backend validation passed");
+    await logger.debug("✅ Backend validation passed");
     const created = await saveDataFad(formData);
 
-    // Audit log for FAD creation
-    await Logger.auditCreate(
+    // Unified logging - combines changeLog + operation logging
+    await logger.create(
       "FAD",
-      created.id,
-      {
-        noFad: created.noFad,
-        item: created.item,
-        plant: created.plant,
-        status: created.status,
-      },
+      { id: created.id, noFad: created.noFad },
       req.user
     );
-
     res.status(200).json({ message: "created", data: created });
   } catch (e) {
-    Logger.error("Save data failed", {
+    logger.error("Save data failed", {
       error: e.message,
       userId: req.user?.id,
     });
@@ -140,9 +133,18 @@ const updateDataHandler = async (req, res) => {
   try {
     const result = await updateDataFad(id, updatedData);
 
-    // Audit log for FAD update - only log if there are actual changes
-    if (result.hasChanges && result.changes) {
-      await Logger.auditUpdate("FAD", id, result.changes, req.user);
+    // Enhanced logging with before/after data - only log if there are actual changes
+    if (result.hasChanges) {
+      await logger.update(
+        "FAD",
+        {
+          id,
+          beforeData: result.beforeData,
+          afterData: result.afterData,
+          changes: result.changes,
+        },
+        req.user
+      );
     } else {
       console.log(
         "📝 [updateDataHandler] No changes detected, skipping changelog"
@@ -158,7 +160,7 @@ const updateDataHandler = async (req, res) => {
     console.error("❌ [updateDataHandler] Update failed:", e.message);
     console.error("❌ [updateDataHandler] Stack:", e.stack);
 
-    Logger.error("Update data failed", {
+    await logger.error("Update data failed", {
       error: e.message,
       fadId: id,
       userId: req.user?.id,
@@ -179,14 +181,13 @@ const deleteDataHandler = async (req, res) => {
   try {
     const result = await deleteDataFad(id);
 
-    // Audit log for FAD deletion
-    await Logger.auditDelete(
+    // Enhanced logging with before data for complete audit trail
+    await logger.delete(
       "FAD",
-      id,
       {
-        noFad: result.beforeData?.noFad,
-        item: result.beforeData?.item,
-        status: result.beforeData?.status,
+        id,
+        beforeData: result.beforeData,
+        result,
       },
       req.user
     );
@@ -195,7 +196,7 @@ const deleteDataHandler = async (req, res) => {
       .status(200)
       .json({ message: "Data deleted successfully", data: result });
   } catch (e) {
-    Logger.error("Delete data failed", {
+    await logger.error("Delete data failed", {
       error: e.message,
       fadId: id,
       userId: req.user?.id,
@@ -212,11 +213,10 @@ const saveControllerVendor = async (req, res) => {
     const formData = req.body;
     const created = await saveDataVendor(formData);
 
-    // Audit log for vendor creation
-    await Logger.auditCreate(
+    // Unified logging
+    await logger.create(
       "VENDOR",
-      created.id,
-      { name: created.name, active: created.active },
+      { id: created.id, name: created.name },
       req.user
     );
 

@@ -20,14 +20,6 @@ router.post(
   ProgramInfoController.upload
 );
 
-// Update single program info image (admin only)
-router.put(
-  "/program-info/:id",
-  authenticate,
-  authorize(["ADMIN"]),
-  ProgramInfoController.update
-);
-
 // Delete program info image (admin only)
 router.delete(
   "/program-info/:id",
