@@ -1,10 +1,17 @@
 import multer from "multer";
 import path from "path";
 import crypto from "crypto";
+import fs from "fs";
 import { env } from "./env.js";
 
+// Ensure TPS subfolder exists
+const TPS_UPLOAD_DIR = path.join(env.UPLOAD_DIR, "TPS");
+if (!fs.existsSync(TPS_UPLOAD_DIR)) {
+  fs.mkdirSync(TPS_UPLOAD_DIR, { recursive: true });
+}
+
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, env.UPLOAD_DIR),
+  destination: (_req, _file, cb) => cb(null, TPS_UPLOAD_DIR),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     const basename = crypto.randomBytes(16).toString("hex");

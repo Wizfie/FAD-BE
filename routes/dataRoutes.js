@@ -11,7 +11,6 @@ import {
 } from "../controllers/dataController.js";
 import { exportFadHandler } from "../controllers/dataController.js";
 import { getChangeLogs } from "../controllers/changeLogController.js";
-import { exportChangeLogs } from "../controllers/changeLogController.js";
 
 import { authenticate, authorize } from "../middlewares/authMiddlewares.js";
 
@@ -70,15 +69,6 @@ router.get(
   authenticate,
   authorize(["ADMIN"]),
   exportFadHandler
-);
-
-// Log
-router.get("/getChangeLog", getChangeLogs);
-router.get(
-  "/getChangeLog/export",
-  authenticate,
-  authorize(["ADMIN"]),
-  exportChangeLogs
 );
 
 export default router;

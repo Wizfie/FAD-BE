@@ -6,6 +6,7 @@ import photoRoutes from "./photoRouter.js";
 import userRoutes from "./userRoutes.js";
 import logRoutes from "./logRoutes.js";
 import changelogRoutes from "./changelogRoutes.js";
+import programInfoRoutes from "./programInfoRoutes.js";
 
 const router = express.Router();
 
@@ -16,5 +17,6 @@ router.use(photoRoutes);
 router.use(userRoutes);
 router.use("/logs", logRoutes);
 router.use("/changelog", changelogRoutes);
+router.use(programInfoRoutes);
 
 export default router;

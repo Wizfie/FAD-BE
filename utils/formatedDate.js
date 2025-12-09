@@ -141,13 +141,36 @@ const tryParseMonth = (s) => {
 };
 
 /**
- * Parser tanggal generik dengan fallback ke Date bawaan
  * @param {*} v - Input tanggal (string, Date, atau lainnya)
  * @returns {Date|null} - Objek Date yang valid atau null
  */
 function parseDate(v) {
   if (!v) return null;
   if (v instanceof Date) return isValidDate(v) ? v : null;
+
+  const str = String(v).trim();
+
+  // Try to parse YYYY-MM-DD format directly to avoid timezone issues
+  const isoDateMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+    const y = Number(year);
+    const m = Number(month) - 1; // Month is 0-indexed
+    const d = Number(day);
+
+    // Create date in local timezone at noon to avoid timezone issues
+    const localDate = new Date(y, m, d, 12, 0, 0, 0);
+
+    // Validate that the date components are correct
+    if (
+      localDate.getFullYear() === y &&
+      localDate.getMonth() === m &&
+      localDate.getDate() === d
+    ) {
+      return localDate;
+    }
+    return null;
+  }
 
   // coba format spesifik datetime dulu
   const asDT = parseDateTime(String(v));

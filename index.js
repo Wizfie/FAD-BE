@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import routes from "./routes/index.js";
 import { shutdownPrisma } from "./services/serviceFad.js";
 import { env } from "./config/env.js";
+import { logger } from "./utils/logger.js";
 
 // ---------- Validasi ENV penting ----------
 const requiredEnvs = [
@@ -87,7 +88,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 // ---------- Static Uploads ----------
-console.log("UPLOAD_DIR resolved to:", env.UPLOAD_DIR);
+logger.info("UPLOAD_DIR resolved", { uploadDir: env.UPLOAD_DIR });
 fs.mkdirSync(env.UPLOAD_DIR, { recursive: true });
 app.use(
   "/uploads",
@@ -137,7 +138,7 @@ app.listen(port, () => {
 
 // ---------- Graceful Shutdown ----------
 const shutdown = async () => {
-  console.log("Shutting down server...");
+  logger.info("Shutting down server...");
   await shutdownPrisma();
   process.exit(0);
 };

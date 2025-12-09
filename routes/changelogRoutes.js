@@ -2,7 +2,8 @@ import express from "express";
 import {
   getChangeLogs,
   getChangeLogStats,
-  exportChangeLogs,
+  getAuditLogSummary,
+  exportAuditLogs,
 } from "../controllers/changeLogController.js";
 import { authenticate, authorize } from "../middlewares/authMiddlewares.js";
 
@@ -14,7 +15,10 @@ router.get("/logs", authenticate, authorize(["ADMIN"]), getChangeLogs);
 // Get changelog statistics (Admin only)
 router.get("/stats", authenticate, authorize(["ADMIN"]), getChangeLogStats);
 
-// Export changelog as CSV (Admin only)
-router.get("/export", authenticate, authorize(["ADMIN"]), exportChangeLogs);
+// Get audit log summary for dashboard (Admin only)
+router.get("/summary", authenticate, authorize(["ADMIN"]), getAuditLogSummary);
+
+// Export audit logs as CSV (Admin only)
+router.get("/export", authenticate, authorize(["ADMIN"]), exportAuditLogs);
 
 export default router;

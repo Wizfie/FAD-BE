@@ -11,6 +11,7 @@ import { AreaService } from "../services/areaService.js";
 import { env } from "../config/env.js";
 import { prisma } from "../utils/prisma.js";
 import { changeLog } from "./changeLogController.js";
+import { logger } from "../utils/logger.js";
 
 export class PhotoController {
   /**
@@ -18,17 +19,16 @@ export class PhotoController {
    */
   static async upload(req, res) {
     try {
-      console.log("📥 Upload request received:");
-      console.log("📥 req.body:", req.body);
-      console.log("📥 req.files:", req.files?.length || 0, "files");
-      console.log(
-        "📥 req.files details:",
-        req.files?.map((f) => ({
+      logger.request(req, "📥 Upload request received");
+      logger.debug("Upload details", {
+        body: req.body,
+        filesCount: req.files?.length || 0,
+        files: req.files?.map((f) => ({
           filename: f.filename,
           originalname: f.originalname,
           size: f.size,
-        }))
-      );
+        })),
+      });
 
       // Expect body fields: areaId atau areaName, opsional comparisonGroupId atau comparisonGroupTitle
       // dan metadata per-file dalam `fileMeta` (JSON array sejajar dengan files[])
@@ -149,12 +149,10 @@ export class PhotoController {
         }
       }
 
-      console.log(
-        "Parsed fileMeta count=",
-        fileMeta.length,
-        "files=",
-        (req.files || []).length
-      );
+      logger.debug("Parsed file metadata", {
+        fileMetaCount: fileMeta.length,
+        filesCount: (req.files || []).length,
+      });
 
       // Pastikan setiap meta memiliki comparisonGroupId jika finalGroupId ada
       const filledMeta = [];
@@ -242,7 +240,6 @@ export class PhotoController {
       const created = await PhotoService.createMany({
         areaId: finalAreaId,
         files,
-        publicBaseUrl: env.BASE_URL,
         fileMeta,
       });
 
@@ -362,7 +359,7 @@ export class PhotoController {
       return res.status(400).json({ message: "invalid id" });
     const { title, description, keterangan } = req.body;
 
-    console.log("Update group request:", {
+    logger.debug("Update group request", {
       id,
       title,
       description,
@@ -375,13 +372,64 @@ export class PhotoController {
         description,
         keterangan,
       });
-      console.log("Group updated successfully:", updated);
+      logger.operation("UPDATE", "PHOTO_GROUP", {
+        id: updated.id,
+        title: updated.title,
+      });
       return res.json(updated);
     } catch (err) {
-      console.error("Update group error", err);
+      logger.error("Update group error", {
+        error: err.message,
+        groupId: id,
+        userId: req.user?.id,
+      });
       return res
         .status(500)
         .json({ message: "Failed update group", error: err.message });
+    }
+  }
+
+  /**
+   * Delete comparison group
+   */
+  static async deleteGroup(req, res) {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id) || id <= 0) {
+      return res.status(400).json({ message: "invalid id" });
+    }
+
+    try {
+      // Check if group exists
+      const existingGroup = await prisma.comparisonGroup.findUnique({
+        where: { id },
+        include: { photos: true },
+      });
+
+      if (!existingGroup) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      // Delete all photos in the group first (cascade delete)
+      await prisma.photo.deleteMany({
+        where: { comparisonGroupId: id },
+      });
+
+      // Delete the group
+      await prisma.comparisonGroup.delete({
+        where: { id },
+      });
+
+      logger.operation("DELETE", "PHOTO_GROUP", { id });
+      return res.json({ message: "Group deleted successfully" });
+    } catch (err) {
+      logger.error("Delete group error", {
+        error: err.message,
+        groupId: id,
+        userId: req.user?.id,
+      });
+      return res
+        .status(500)
+        .json({ message: "Failed to delete group", error: err.message });
     }
   }
 
@@ -446,9 +494,15 @@ export class PhotoController {
       // Ambil info foto sebelum dihapus untuk changelog
       const photo = await prisma.photo.findUnique({ where: { id } });
 
-      await PhotoService.remove(id);
+      if (!photo) {
+        return res.status(404).json({
+          success: false,
+          message: "Foto tidak ditemukan",
+        });
+      }
 
-      const deleted = await PhotoService.delete(id);
+      // Remove photo (file + database record)
+      await PhotoService.remove(id);
 
       // Log penghapusan foto ke changelog
       if (photo) {
@@ -461,11 +515,18 @@ export class PhotoController {
         });
       }
 
-      return res.json({ message: "Foto dihapus" });
+      return res.json({
+        success: true,
+        message: "Foto berhasil dihapus",
+        data: { deletedPhotoId: id },
+      });
     } catch (err) {
       console.error("Remove photo error", err);
       // jika prisma throw karena not found, return 404
-      return res.status(404).json({ message: "Foto tidak ditemukan" });
+      return res.status(404).json({
+        success: false,
+        message: "Foto tidak ditemukan",
+      });
     }
   }
 }

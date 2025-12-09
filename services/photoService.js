@@ -8,6 +8,7 @@
 import { prisma } from "../utils/prisma.js";
 import { getRange } from "../utils/dateRange.js";
 import { env } from "../config/env.js";
+import { logger } from "../utils/logger.js";
 import path from "path";
 import fs from "fs";
 import sharp from "sharp";
@@ -59,7 +60,7 @@ async function makeThumb(fullPath, thumbPath, mime) {
 export class PhotoService {
   // createMany now accepts files plus optional per-file metadata array (fileMeta)
   // fileMeta is an array of objects: { category, takenAt, comparisonGroupId }
-  static async createMany({ areaId, files, publicBaseUrl, fileMeta = [] }) {
+  static async createMany({ areaId, files, fileMeta = [] }) {
     // 1) HEIC → JPEG
     for (const f of files) {
       if (
@@ -79,11 +80,11 @@ export class PhotoService {
 
     // 2) Generate thumbnail
     for (const f of files) {
-      const fullPath = path.join(env.UPLOAD_DIR, f.filename);
+      const fullPath = path.join(env.UPLOAD_DIR, "TPS", f.filename);
       const ext = path.extname(f.filename).toLowerCase();
       const mimeForThumb = ext === ".png" ? "image/png" : "image/jpeg"; // tentukan output thumb
       const thumbName = getThumbName(f.filename).replace(/\.(heic)$/i, ".jpg");
-      const thumbPath = path.join(env.UPLOAD_DIR, thumbName);
+      const thumbPath = path.join(env.UPLOAD_DIR, "TPS", thumbName);
 
       try {
         await makeThumb(fullPath, thumbPath, mimeForThumb);
@@ -96,7 +97,8 @@ export class PhotoService {
 
     const photosData = files.map((f, idx) => {
       const meta = fileMeta[idx] || {};
-      const taken = meta.takenAt ? new Date(meta.takenAt) : undefined;
+      // If takenAt provided, use it for backdate, otherwise use current time
+      const taken = meta.takenAt ? new Date(meta.takenAt) : new Date();
       // Safety: normalize and validate category
       const allowed = ["before", "action", "after"];
       let cat = null;
@@ -111,10 +113,8 @@ export class PhotoService {
         originalName: f.originalname || "",
         mime: f.mimetype,
         size: f.size,
-        url: `${publicBaseUrl}/uploads/${f.filename}`,
-        thumbUrl: f._thumbFilename
-          ? `${publicBaseUrl}/uploads/${f._thumbFilename}`
-          : null,
+        url: `/uploads/TPS/${f.filename}`,
+        thumbUrl: f._thumbFilename ? `/uploads/TPS/${f._thumbFilename}` : null,
         takenAt: taken,
         keterangan: meta.keterangan || null,
         category: cat,
@@ -133,7 +133,7 @@ export class PhotoService {
       // Rollback: delete files and thumbs written to disk
       for (const f of files) {
         try {
-          const p = path.join(env.UPLOAD_DIR, f.filename);
+          const p = path.join(env.UPLOAD_DIR, "TPS", f.filename);
           if (fs.existsSync(p)) fs.unlinkSync(p);
         } catch (e) {
           console.warn("Failed cleanup file:", f.filename, e);
@@ -219,7 +219,7 @@ export class PhotoService {
     if (data.keterangan !== undefined) payload.keterangan = data.keterangan;
     if (data.summary !== undefined) payload.summary = data.summary;
 
-    console.log("PhotoService.updateGroup payload:", payload);
+    logger.debug("PhotoService.updateGroup payload", { payload });
 
     return prisma.comparisonGroup.update({
       where: { id: Number(id) },

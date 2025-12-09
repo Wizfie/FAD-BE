@@ -1,0 +1,23 @@
+-- Update tabel Photo - kolom url
+UPDATE Photo 
+SET url = CONCAT('/uploads/', SUBSTRING_INDEX(url, '/uploads/', -1))
+WHERE url LIKE '%/uploads/%';
+
+-- Update tabel Photo - kolom thumbUrl
+UPDATE Photo 
+SET thumbUrl = CONCAT('/uploads/', SUBSTRING_INDEX(thumbUrl, '/uploads/', -1))
+WHERE thumbUrl LIKE '%/uploads/%' AND thumbUrl IS NOT NULL;
+
+-- Update tabel ProgramInfoImage - kolom url
+UPDATE ProgramInfoImage 
+SET url = CONCAT('/uploads/', SUBSTRING_INDEX(url, '/uploads/', -1))
+WHERE url LIKE '%/uploads/%';
+
+-- Update tabel ProgramInfoImage - kolom thumbUrl
+UPDATE ProgramInfoImage 
+SET thumbUrl = CONCAT('/uploads/', SUBSTRING_INDEX(thumbUrl, '/uploads/', -1))
+WHERE thumbUrl LIKE '%/uploads/%' AND thumbUrl IS NOT NULL;
+
+-- Cek hasil update
+SELECT id, url, thumbUrl FROM Photo LIMIT 5;
+SELECT id, url, thumbUrl FROM ProgramInfoImage LIMIT 5;

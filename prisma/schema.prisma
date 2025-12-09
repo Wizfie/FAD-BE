@@ -71,15 +71,24 @@ model RefreshSession {
 }
 
 
-model ChangeLog {
+// ========================================
+// UNIFIED LOGGING SYSTEM - Single Table
+// ========================================
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  entity      String   @db.VarChar(50)    // FAD, PHOTO, USER, AREA, AUTH
+  entityId    String?  @db.VarChar(50)    // ID of affected record
+  operation   String   @db.VarChar(30)    // CREATE, UPDATE, DELETE, LOGIN_FAILED, etc
+  userId      String?  @db.VarChar(50)    // Who performed the action
+  username    String?  @db.VarChar(100)   // Username for quick display
+  changes     Json?                       // Data changes or event details
+  createdAt   DateTime @default(now())
 
-  id        String @id @default(uuid())
-  model     String
-  action    String
-  data  Json
-  createdAt DateTime @default(now())
-
-  @@map("ChangeLog")
+  @@map("AuditLog")
+  @@index([entity, createdAt], name: "idx_entity_time")
+  @@index([userId, createdAt], name: "idx_user_time")
+  @@index([operation, createdAt], name: "idx_operation_time")
+  @@index([createdAt(sort: Desc)], name: "idx_recent")
 }
 
 model Area {
@@ -128,4 +137,21 @@ model Photo {
 
   @@index([areaId , createdAt])
   @@index([createdAt])
+}
+
+model ProgramInfoImage {
+  id  Int @id @default(autoincrement())
+  title String?
+  filename String
+  thumbFilename String?
+  thumbUrl String?
+  originalName String
+  mime String
+  size Int
+  url String
+  displayOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([displayOrder])
 }

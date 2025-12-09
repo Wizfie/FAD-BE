@@ -9,11 +9,11 @@ import {
   deleteDataVendor,
 } from "../services/serviceFad.js";
 import dotenv from "dotenv";
-import { changeLog } from "./changeLogController.js";
 import {
   fmtDateToDDMMYYYY,
   fmtDateTimeDDMMYYYY_HHmmss,
 } from "../utils/formatedDate.js";
+import { Logger } from "../utils/logger.js";
 dotenv.config();
 
 /**
@@ -23,7 +23,8 @@ const saveDataHandler = async (req, res) => {
   try {
     const formData = req.body;
 
-    console.log("📨 Received form data:", formData);
+    Logger.request(req, "📨 Received form data for FAD creation");
+    Logger.debug("Form data details", { formData });
 
     // Server-side validation and formatting
     let noFad = String(formData.noFad || "").trim();
@@ -41,13 +42,13 @@ const saveDataHandler = async (req, res) => {
     noFad = noFad.toUpperCase();
     formData.noFad = noFad;
 
-    console.log("📝 Backend auto-formatted No FAD:", noFad);
+    Logger.debug("📝 Backend auto-formatted No FAD", { noFad });
 
     // Optional: Validate No FAD format (flexible pattern)
     // Allows letters, numbers, slashes, hyphens, dots
-    const noFadPattern = /^[A-Z0-9\/\-\.]+$/;
+    const noFadPattern = /^[A-Z0-9\/\-\.\s]+$/;
     if (!noFadPattern.test(noFad)) {
-      console.warn("❌ Validation failed: Invalid No FAD format");
+      Logger.validation("noFad", noFad, "Invalid No FAD format");
       return res.status(400).json({
         error:
           "Format No FAD tidak valid. Gunakan huruf besar, angka, slash (/), atau tanda hubung (-)",
@@ -57,22 +58,35 @@ const saveDataHandler = async (req, res) => {
     }
 
     if (!item) {
-      console.warn("❌ Validation failed: Item is required");
+      Logger.validation("item", null, "Item is required");
       return res.status(400).json({
         error: "Item wajib diisi",
         field: "item",
       });
     }
 
-    console.log("✅ Backend validation passed");
+    Logger.debug("✅ Backend validation passed");
     const created = await saveDataFad(formData);
 
-    await changeLog("FAD", "CREATE", created);
+    // Audit log for FAD creation
+    await Logger.auditCreate(
+      "FAD",
+      created.id,
+      {
+        noFad: created.noFad,
+        item: created.item,
+        plant: created.plant,
+        status: created.status,
+      },
+      req.user
+    );
 
-    console.log("✅ FAD saved to database:", created);
     res.status(200).json({ message: "created", data: created });
   } catch (e) {
-    console.error("Save data failed:", e);
+    Logger.error("Save data failed", {
+      error: e.message,
+      userId: req.user?.id,
+    });
     res
       .status(500)
       .json({ error: "Internal server error", details: e.message });
@@ -111,21 +125,49 @@ const getDataHandler = async (req, res) => {
 const updateDataHandler = async (req, res) => {
   const { id } = req.params;
   const updatedData = req.body;
+
+  console.log("🔥 [updateDataHandler] Update request received");
+  console.log("🔥 [updateDataHandler] ID:", id);
+  console.log(
+    "🔥 [updateDataHandler] Request body:",
+    JSON.stringify(updatedData, null, 2)
+  );
+  console.log(
+    "🔥 [updateDataHandler] Content-Type:",
+    req.headers["content-type"]
+  );
+
   try {
     const result = await updateDataFad(id, updatedData);
 
-    // Simpan log perubahan
-    await changeLog("FAD", "UPDATE", result);
+    // Audit log for FAD update - only log if there are actual changes
+    if (result.hasChanges && result.changes) {
+      await Logger.auditUpdate("FAD", id, result.changes, req.user);
+    } else {
+      console.log(
+        "📝 [updateDataHandler] No changes detected, skipping changelog"
+      );
+    }
 
+    console.log("✅ [updateDataHandler] Update successful");
     res.status(200).json({
       message: "Data updated successfully",
-      data: result,
+      data: result.data, // Return only the updated data, not the changelog info
     });
   } catch (e) {
-    console.error("Update data failed:", e);
-    res
-      .status(500)
-      .json({ message: "Terjadi kesalahan saat memperbarui data" });
+    console.error("❌ [updateDataHandler] Update failed:", e.message);
+    console.error("❌ [updateDataHandler] Stack:", e.stack);
+
+    Logger.error("Update data failed", {
+      error: e.message,
+      fadId: id,
+      userId: req.user?.id,
+    });
+
+    res.status(500).json({
+      message: "Terjadi kesalahan saat memperbarui data",
+      error: e.message, // Include detailed error for debugging
+    });
   }
 };
 
@@ -137,13 +179,27 @@ const deleteDataHandler = async (req, res) => {
   try {
     const result = await deleteDataFad(id);
 
-    await changeLog("FAD", "DELETE", result);
+    // Audit log for FAD deletion
+    await Logger.auditDelete(
+      "FAD",
+      id,
+      {
+        noFad: result.beforeData?.noFad,
+        item: result.beforeData?.item,
+        status: result.beforeData?.status,
+      },
+      req.user
+    );
 
     res
       .status(200)
       .json({ message: "Data deleted successfully", data: result });
   } catch (e) {
-    console.error("Delete data failed:", e);
+    Logger.error("Delete data failed", {
+      error: e.message,
+      fadId: id,
+      userId: req.user?.id,
+    });
     res.status(500).json({ message: "Terjadi kesalahan saat menghapus data" });
   }
 };
@@ -156,11 +212,20 @@ const saveControllerVendor = async (req, res) => {
     const formData = req.body;
     const created = await saveDataVendor(formData);
 
-    await changeLog("VENDOR", "CREATE", created);
+    // Audit log for vendor creation
+    await Logger.auditCreate(
+      "VENDOR",
+      created.id,
+      { name: created.name, active: created.active },
+      req.user
+    );
 
     res.status(200).json({ message: "created", data: created });
   } catch (e) {
-    console.error("Save vendor failed:", e);
+    await logger.error("Save vendor failed", {
+      error: e.message,
+      userId: req.user?.id,
+    });
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -188,12 +253,16 @@ const updateControllerVendor = async (req, res) => {
   try {
     const result = await updateDataVendor(id, updatedData);
 
-    // Simpan log perubahan
-    await changeLog("VENDOR", "UPDATE", result);
+    // Unified logging
+    await logger.update("VENDOR", { id, result }, req.user);
 
     res.status(200).json(result);
   } catch (e) {
-    console.error("Update vendor failed:", e);
+    await logger.error("Update vendor failed", {
+      error: e.message,
+      vendorId: id,
+      userId: req.user?.id,
+    });
     res
       .status(500)
       .json({ message: "Terjadi kesalahan saat memperbarui data" });
@@ -208,12 +277,16 @@ const deleteControllerVendor = async (req, res) => {
   try {
     const result = await deleteDataVendor(id);
 
-    // Simpan log perubahan
-    await changeLog("VENDOR", "DELETE", result);
+    // Unified logging
+    await logger.delete("VENDOR", { id, result }, req.user);
 
     res.status(200).json(result);
   } catch (e) {
-    console.error("Delete vendor failed:", e);
+    await logger.error("Delete vendor failed", {
+      error: e.message,
+      vendorId: id,
+      userId: req.user?.id,
+    });
     res.status(500).json({ message: "Terjadi kesalahan saat menghapus data" });
   }
 };

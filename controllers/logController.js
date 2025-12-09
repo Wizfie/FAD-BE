@@ -3,6 +3,28 @@ import path from "path";
 
 const LOG_DIR = process.env.LOG_DIR || "./logs";
 
+/**
+ * Transform unified logger format to expected security log format
+ */
+const transformSecurityLog = (parsed) => {
+  if (parsed.type === "SECURITY" && parsed.context) {
+    return {
+      timestamp: parsed.timestamp,
+      event: parsed.context.event,
+      ip: parsed.context.ip || "unknown",
+      userAgent: parsed.context.userAgent || "unknown",
+      details: {
+        severity: parsed.context.severity,
+        username: parsed.context.username,
+        endpoint: parsed.context.endpoint,
+        reason: parsed.context.reason || parsed.context.error,
+        ...parsed.context,
+      },
+    };
+  }
+  return parsed;
+};
+
 export class LogController {
   /**
    * Dapatkan daftar file log yang tersedia
@@ -71,7 +93,8 @@ export class LogController {
       let logs = logLines
         .map((line) => {
           try {
-            return JSON.parse(line);
+            const parsed = JSON.parse(line);
+            return transformSecurityLog(parsed);
           } catch {
             return null;
           }
@@ -80,8 +103,9 @@ export class LogController {
 
       // Apply filters
       if (event) {
-        logs = logs.filter((log) =>
-          log.event.toLowerCase().includes(event.toLowerCase())
+        logs = logs.filter(
+          (log) =>
+            log.event && log.event.toLowerCase().includes(event.toLowerCase())
         );
       }
       if (severity && logs.length > 0) {
@@ -146,12 +170,16 @@ export class LogController {
 
           logLines.forEach((line) => {
             try {
-              const log = JSON.parse(line);
+              const parsed = JSON.parse(line);
+              const log = transformSecurityLog(parsed);
+
               stats.totalEvents++;
 
               // Count event types
-              stats.eventTypes[log.event] =
-                (stats.eventTypes[log.event] || 0) + 1;
+              if (log.event) {
+                stats.eventTypes[log.event] =
+                  (stats.eventTypes[log.event] || 0) + 1;
+              }
 
               // Count severity
               if (log.details?.severity) {
@@ -392,7 +420,8 @@ export class LogController {
       let logs = logLines
         .map((line) => {
           try {
-            return JSON.parse(line);
+            const parsed = JSON.parse(line);
+            return transformSecurityLog(parsed);
           } catch {
             return null;
           }
@@ -401,8 +430,9 @@ export class LogController {
 
       // Apply filters
       if (event) {
-        logs = logs.filter((log) =>
-          log.event.toLowerCase().includes(event.toLowerCase())
+        logs = logs.filter(
+          (log) =>
+            log.event && log.event.toLowerCase().includes(event.toLowerCase())
         );
       }
       if (severity && logs.length > 0) {
@@ -455,6 +485,160 @@ export class LogController {
     } catch (error) {
       console.error("Error exporting security logs:", error);
       res.status(500).json({ error: "Failed to export security logs" });
+    }
+  }
+
+  /**
+   * Ambil audit logs dari unified logger dengan filter dan pagination
+   */
+  static async getAuditLogs(req, res) {
+    try {
+      const {
+        date = new Date().toISOString().split("T")[0],
+        page = 1,
+        limit = 50,
+        operation = "",
+        entity = "",
+        userId = "",
+      } = req.query;
+
+      const logFile = path.join(LOG_DIR, `audit-${date}.log`);
+
+      if (!fs.existsSync(logFile)) {
+        return res.json({
+          logs: [],
+          total: 0,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          message: `No audit logs found for date: ${date}`,
+        });
+      }
+
+      const logContent = fs.readFileSync(logFile, "utf8");
+      const logLines = logContent
+        .trim()
+        .split("\n")
+        .filter((line) => line);
+
+      // Parse and filter logs
+      let logs = logLines
+        .map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        })
+        .filter((log) => log !== null && log.type === "AUDIT");
+
+      // Apply filters
+      if (operation) {
+        logs = logs.filter((log) =>
+          log.context?.operation
+            ?.toLowerCase()
+            .includes(operation.toLowerCase())
+        );
+      }
+      if (entity) {
+        logs = logs.filter((log) =>
+          log.context?.entity?.toLowerCase().includes(entity.toLowerCase())
+        );
+      }
+      if (userId) {
+        logs = logs.filter((log) => log.context?.userId === userId);
+      }
+
+      // Sort by timestamp (newest first)
+      logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      // Pagination
+      const total = logs.length;
+      const startIndex = (parseInt(page) - 1) * parseInt(limit);
+      const paginatedLogs = logs.slice(
+        startIndex,
+        startIndex + parseInt(limit)
+      );
+
+      res.json({
+        logs: paginatedLogs,
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        hasNext: startIndex + parseInt(limit) < total,
+        hasPrev: parseInt(page) > 1,
+      });
+    } catch (error) {
+      console.error("Error getting audit logs:", error);
+      res.status(500).json({ error: "Failed to get audit logs" });
+    }
+  }
+
+  /**
+   * Export audit logs as CSV
+   */
+  static async exportAuditLogs(req, res) {
+    try {
+      const { date = new Date().toISOString().split("T")[0] } = req.query;
+      const logFile = path.join(LOG_DIR, `audit-${date}.log`);
+
+      if (!fs.existsSync(logFile)) {
+        return res.status(404).json({
+          error: `No audit logs found for date: ${date}`,
+        });
+      }
+
+      const logContent = fs.readFileSync(logFile, "utf8");
+      const logLines = logContent
+        .trim()
+        .split("\n")
+        .filter((line) => line);
+
+      const logs = logLines
+        .map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        })
+        .filter((log) => log !== null && log.type === "AUDIT");
+
+      // CSV headers
+      const csvHeader = [
+        "Timestamp",
+        "Operation",
+        "Entity",
+        "User ID",
+        "Username",
+        "Data",
+      ];
+
+      const csvRows = [csvHeader.join(",")];
+
+      logs.forEach((log) => {
+        const row = [
+          log.timestamp,
+          log.context?.operation || "N/A",
+          log.context?.entity || "N/A",
+          log.context?.userId || "N/A",
+          log.context?.username || "N/A",
+          `"${JSON.stringify(log.context || {}).replace(/"/g, '""')}"`,
+        ];
+        csvRows.push(row.join(","));
+      });
+
+      const csvContent = csvRows.join("\n");
+      const filename = `audit-logs-${date}.csv`;
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+      res.status(200).send(csvContent);
+    } catch (error) {
+      console.error("Error exporting audit logs:", error);
+      res.status(500).json({ error: "Failed to export audit logs" });
     }
   }
 }
