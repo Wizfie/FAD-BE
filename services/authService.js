@@ -38,7 +38,12 @@ function signAccessToken(user) {
  */
 function signRefreshToken(userId, jti, expiresAt) {
   const options = expiresAt
-    ? { expiresIn: Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) }
+    ? {
+        expiresIn: Math.max(
+          1,
+          Math.floor((expiresAt.getTime() - Date.now()) / 1000),
+        ),
+      }
     : { expiresIn: REFRESH_TTL };
   return jwt.sign({ sub: userId, jti }, REFRESH_TOKEN_SECRET, options);
 }
@@ -212,7 +217,11 @@ export const refreshWithRotation = async (token) => {
       });
 
       return {
-        newRefreshToken: signRefreshToken(user.id, newSession.id, session.expiresAt),
+        newRefreshToken: signRefreshToken(
+          user.id,
+          newSession.id,
+          session.expiresAt,
+        ),
         user,
       };
     });

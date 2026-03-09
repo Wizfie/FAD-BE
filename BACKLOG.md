@@ -31,12 +31,12 @@
 
 ### JWT Session Lifetime Fix
 
-| Item                                                               | Keterangan                                                                                                                    |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Item                                                               | Keterangan                                                                                                                   |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | Rotasi refresh token tidak reset `expiresAt`                       | Bug: setiap rotasi buat session baru dengan `expiresAt = now + REFRESH_TTL` → sesi tidak pernah berakhir selama user aktif   |
-| Fix: session baru mewarisi `expiresAt` dari session lama           | Total lifetime refresh token selalu terhitung sejak login, bukan dari rotasi terakhir                                         |
+| Fix: session baru mewarisi `expiresAt` dari session lama           | Total lifetime refresh token selalu terhitung sejak login, bukan dari rotasi terakhir                                        |
 | JWT refresh TTL sinkron dengan sisa `expiresAt` session DB         | Bug: JWT baru selalu `expiresIn: REFRESH_TTL` (full) meski session DB hampir habis → jwt.verify() lolos padahal session mati |
-| Fix: `signRefreshToken()` terima parameter `expiresAt` saat rotasi | JWT TTL = sisa detik dari `session.expiresAt - now`, bukan konstan REFRESH_TTL                                                |
+| Fix: `signRefreshToken()` terima parameter `expiresAt` saat rotasi | JWT TTL = sisa detik dari `session.expiresAt - now`, bukan konstan REFRESH_TTL                                               |
 
 ### Security Audit Fixes
 
